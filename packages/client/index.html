@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0a1633" />
+    <title>Yılan.io</title>
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <div id="hud" hidden>
+      <div id="leaderboard"></div>
+      <div id="stats"></div>
+      <canvas id="minimap"></canvas>
+    </div>
+
+    <div id="menu" hidden>
+      <h1 class="logo"><span class="logo-main">Yılan</span><span class="logo-ext">.io</span></h1>
+      <form id="play-form" autocomplete="off">
+        <input id="nick" type="text" spellcheck="false" />
+        <button id="play-btn" type="submit"></button>
+      </form>
+      <p id="tip"></p>
+      <p id="last-score"></p>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "client",
+      "runtimeExecutable": "C:\\Users\\mciha\\.tools\\node\\node.exe",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "packages/client",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
+      "port": 5173
+    }
+  ]
+}
