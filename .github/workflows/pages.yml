@@ -33,6 +33,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+        env:
+          # İsteğe bağlı güvenilir aktarıcı (TURN) — depo Settings → Secrets and variables →
+          # Actions → Variables: TURN_URL (kimlik bilgisi adresi), ICE_SERVERS (RTCIceServer[] JSON)
+          VITE_TURN_URL: ${{ vars.TURN_URL }}
+          VITE_ICE_SERVERS: ${{ vars.ICE_SERVERS }}
 
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name != 'pull_request'

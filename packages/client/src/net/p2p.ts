@@ -22,8 +22,15 @@ const PEER_PREFIX = 'yilan-io-';
 const ARENA_RADIUS = 20000;
 /** Eşleştirme sunucusuna kaydolma süresi sınırı. */
 const CONNECT_TIMEOUT_MS = 15_000;
-/** Kurucunun tarayıcısına doğrudan/aktarıcı üzerinden bağlanma süresi sınırı. */
-const DIAL_TIMEOUT_MS = 25_000;
+/**
+ * Eşleştirme sunucusuna ulaştıktan sonra kurucunun tarayıcısına doğrudan/aktarıcı üzerinden
+ * bağlanma süresi sınırı (TCP/TLS aktarıcılar UDP'den geç devreye girer).
+ */
+const DIAL_TIMEOUT_MS = 30_000;
+/** Aktarıcı (TURN) kimlik bilgilerini getirme süresi sınırı; aşılırsa onlarsız devam edilir. */
+const TURN_FETCH_TIMEOUT_MS = 4000;
+/** Getirilen aktarıcı kimlik bilgileri bu süre boyunca yeniden kullanılır. */
+const TURN_CACHE_MS = 10 * 60_000;
 /** Bağlandıktan sonra eşleştirme sunucusundan ayrılmadan önce geç gelen ağ adaylarını bekle. */
 const SIGNAL_LINGER_MS = 10_000;
 /** Kurucudan bu süre veri gelmezse (her tick gelmeli) bağlantı kopmuş sayılır. */
@@ -45,46 +52,87 @@ export interface ClientLink {
 /**
  * Bağlantı yolu bulma (ICE) sunucuları. STUN, iki tarayıcının doğrudan bağlanması için dış
  * adreslerini öğrenmesini sağlar; çoğu ev ağında bu yeter. Mobil veri, okul/iş ağı gibi
- * katı NAT'lerde doğrudan bağlantı kurulamaz, veri bir TURN aktarıcısı üzerinden gider:
- * birkaç ücretsiz aktarıcı sırayla denenir (biri çalışmıyorsa diğeri). Kendi aktarıcınızı
- * derlemede `VITE_ICE_SERVERS` (RTCIceServer[] JSON) ile ekleyebilirsiniz.
+ * katı NAT'lerde doğrudan bağlantı kurulamaz, veri bir TURN aktarıcısı üzerinden gider.
+ *
+ * Kayıt gerektirmeyen ücretsiz aktarıcılar garanti vermez (Open Relay'in eski ortak şifresi
+ * artık çalışmıyor; kaldırıldı). Hepsi birlikte denenir; UDP'yi engelleyen ağlar için TCP de.
+ * Güvenilir bir aktarıcı için derlemede:
+ *  - `VITE_TURN_URL`: aktarıcı kimlik bilgilerini veren adres (ör. Metered:
+ *    `https://APP.metered.live/api/v1/turn/credentials?apiKey=ANAHTAR`); yanıt RTCIceServer[]
+ *    ya da `{ iceServers: RTCIceServer[] }`. Bağlanmadan önce getirilir.
+ *  - `VITE_ICE_SERVERS`: sabit ek sunucular (RTCIceServer[] JSON).
+ * GitHub Pages derlemesi bunları depo değişkenlerinden (`TURN_URL`, `ICE_SERVERS`) alır.
  */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   { urls: 'stun:stun.cloudflare.com:3478' },
   {
-    urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+    urls: [
+      'turn:eu-0.turn.peerjs.com:3478',
+      'turn:us-0.turn.peerjs.com:3478',
+      'turn:eu-0.turn.peerjs.com:3478?transport=tcp',
+      'turn:us-0.turn.peerjs.com:3478?transport=tcp',
+    ],
     username: 'peerjs',
     credential: 'peerjsp',
   },
   {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
+    urls: ['turn:freestun.net:3478', 'turn:freestun.net:3478?transport=tcp'],
+    username: 'free',
+    credential: 'free',
   },
 ];
 
-function iceServers(): RTCIceServer[] {
+function isIceList(v: unknown): v is RTCIceServer[] {
+  return Array.isArray(v) && v.every((s) => typeof s === 'object' && s !== null && 'urls' in s);
+}
+
+/** Derlemede verilen sabit ek sunucular (`VITE_ICE_SERVERS`). */
+function configuredIceServers(): RTCIceServer[] {
   const extra = import.meta.env.VITE_ICE_SERVERS as string | undefined;
-  if (!extra) return ICE_SERVERS;
+  if (!extra) return [];
   try {
-    const list = JSON.parse(extra) as RTCIceServer[];
-    return Array.isArray(list) ? [...list, ...ICE_SERVERS] : ICE_SERVERS;
+    const list = JSON.parse(extra) as unknown;
+    return isIceList(list) ? list : [];
   } catch {
-    return ICE_SERVERS;
+    return [];
   }
+}
+
+let turnCache: { at: number; list: RTCIceServer[] } | null = null;
+
+/** `VITE_TURN_URL` verildiyse aktarıcı kimlik bilgilerini getirir (olmazsa boş liste). */
+async function fetchedIceServers(): Promise<RTCIceServer[]> {
+  const url = import.meta.env.VITE_TURN_URL as string | undefined;
+  if (!url) return [];
+  if (turnCache && performance.now() - turnCache.at < TURN_CACHE_MS) return turnCache.list;
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), TURN_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return [];
+    const body = (await res.json()) as unknown;
+    const list = isIceList(body) ? body : (body as { iceServers?: unknown } | null)?.iceServers;
+    if (!isIceList(list)) return [];
+    turnCache = { at: performance.now(), list };
+    return list;
+  } catch {
+    return [];
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function iceServers(): Promise<RTCIceServer[]> {
+  return [...(await fetchedIceServers()), ...configuredIceServers(), ...ICE_SERVERS];
 }
 
 /**
  * PeerJS seçenekleri. Eşleştirme sunucusu varsayılan olarak PeerJS'in ücretsiz bulut sunucusu;
  * `VITE_PEER_SERVER=host:port/yol` ile kendi PeerJS sunucunuz kullanılabilir (yerel deneme).
  */
-function peerOptions(): PeerOptions {
-  const opts: PeerOptions = { debug: 0, config: { iceServers: iceServers() } };
+async function peerOptions(): Promise<PeerOptions> {
+  const opts: PeerOptions = { debug: 0, config: { iceServers: await iceServers() } };
   const server = import.meta.env.VITE_PEER_SERVER as string | undefined;
   if (server) {
     const m = /^(?:(wss?|https?):\/\/)?([^/:]+)(?::(\d+))?(\/.*)?$/.exec(server);
@@ -229,9 +277,10 @@ async function localAddresses(): Promise<string[]> {
 }
 
 /** Eşleştirme sunucusuna `id` kimliğiyle kaydolur. Kimlik doluysa `taken` döner. */
-function register(id: string): Promise<Peer | 'taken'> {
+async function register(id: string): Promise<Peer | 'taken'> {
+  const opts = await peerOptions();
   return new Promise((resolve, reject) => {
-    const peer = new Peer(id, peerOptions());
+    const peer = new Peer(id, opts);
     const timer = window.setTimeout(() => {
       peer.destroy();
       reject(new NetError('unreachable'));
@@ -301,13 +350,52 @@ export async function hostRoom(opts: {
   return link;
 }
 
+/** Katılırken ne kadar ilerlendiği: başarısız olunca hangi adımda takıldığını söylemek için. */
+interface DialProgress {
+  /** Kurucu teklife yanıt verdi (tarayıcısı açık ve uyanık). */
+  answered: boolean;
+  /** Bu tarayıcı bir aktarıcıdan (TURN) adres alabildi. */
+  relayHere: boolean;
+  /** Kurucunun tarayıcısı bir aktarıcıdan adres alabildi. */
+  relayHost: boolean;
+}
+
+const RELAY_CANDIDATE = / typ relay /;
+
+/** Bağlantının ağ adaylarını ve kurucunun yanıtını izler (PeerJS'in kendi dinleyicilerine dokunmadan). */
+function watchDial(conn: DataConnection, progress: DialProgress): void {
+  const pc = conn.peerConnection as RTCPeerConnection | null | undefined;
+  if (!pc) return;
+  pc.addEventListener('icecandidate', (e) => {
+    if (e.candidate && RELAY_CANDIDATE.test(e.candidate.candidate)) progress.relayHere = true;
+  });
+  pc.addEventListener('signalingstatechange', () => {
+    if (pc.signalingState === 'stable' && pc.remoteDescription) progress.answered = true;
+  });
+  // Kurucunun adayları eşleştirme sunucusundan gelip buraya eklenir
+  const add = pc.addIceCandidate.bind(pc) as (c?: RTCIceCandidateInit) => Promise<void>;
+  pc.addIceCandidate = ((c?: RTCIceCandidateInit) => {
+    if (c?.candidate && RELAY_CANDIDATE.test(c.candidate)) progress.relayHost = true;
+    return add(c);
+  }) as RTCPeerConnection['addIceCandidate'];
+}
+
+/** Kurucuyla bağlantı kurulamadığında doğru hatayı seçer. */
+function dialError(progress: DialProgress): NetError {
+  if (!progress.answered) return new NetError('noAnswer');
+  return new NetError('p2pFailed', {
+    here: progress.relayHere ? '✓' : '✗',
+    host: progress.relayHost ? '✓' : '✗',
+  });
+}
+
 /** Koddaki odaya (kurucunun tarayıcısına) bağlanır. */
-export function dialRoom(code: string): Promise<ClientLink> {
+export async function dialRoom(code: string): Promise<ClientLink> {
+  const opts = await peerOptions();
   return new Promise((resolve, reject) => {
-    const peer = new Peer(peerOptions());
+    const peer = new Peer(opts);
+    const progress: DialProgress = { answered: false, relayHere: false, relayHost: false };
     let settled = false;
-    /** Eşleştirme sunucusuna ulaşıldı: bundan sonraki başarısızlık iki tarayıcı arasındadır. */
-    let signalled = false;
     const fail = (err: NetError) => {
       if (settled) return;
       settled = true;
@@ -315,22 +403,23 @@ export function dialRoom(code: string): Promise<ClientLink> {
       peer.destroy();
       reject(err);
     };
-    const timer = window.setTimeout(
-      () => fail(new NetError(signalled ? 'p2pFailed' : 'unreachable')),
-      DIAL_TIMEOUT_MS,
-    );
+    let timer = window.setTimeout(() => fail(new NetError('unreachable')), CONNECT_TIMEOUT_MS);
     peer.on('error', (err) => {
       if (err.type === 'peer-unavailable') fail(new NetError('notFound'));
       else if (err.type === 'browser-incompatible') fail(new NetError('noWebrtc'));
-      else fail(new NetError(signalled ? 'p2pFailed' : 'unreachable'));
+      // Eşleştirme sunucusuyla ilgili hata: kurucu yanıt verdiyse sorun iki tarayıcı arasında
+      else fail(progress.answered ? dialError(progress) : new NetError('unreachable'));
     });
     peer.once('open', () => {
-      signalled = true;
+      if (settled) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fail(dialError(progress)), DIAL_TIMEOUT_MS);
       const conn = peer.connect(peerId(code), {
         reliable: true,
         serialization: 'raw',
         metadata: { v: PROTOCOL_VERSION },
       });
+      watchDial(conn, progress);
       conn.once('open', () => {
         if (settled) return;
         settled = true;
@@ -342,10 +431,10 @@ export function dialRoom(code: string): Promise<ClientLink> {
       });
       // Ağlar (NAT/güvenlik duvarı) bağlantıya izin vermedi: süre dolmasını bekleme
       conn.on('iceStateChanged', (state) => {
-        if (state === 'failed') fail(new NetError('p2pFailed'));
+        if (state === 'failed') fail(dialError(progress));
       });
-      conn.once('close', () => fail(new NetError('p2pFailed')));
-      conn.once('error', () => fail(new NetError('p2pFailed')));
+      conn.once('close', () => fail(dialError(progress)));
+      conn.once('error', () => fail(dialError(progress)));
     });
   });
 }

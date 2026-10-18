@@ -33,7 +33,7 @@ export const en: Record<MessageKey, string> = {
   'menu.roomMeta': '{people} here · {bots} bots · speed {speed}x',
   'menu.roomHint': 'More friends can join by entering this code or opening the link.',
   'menu.roomHintHost':
-    'Friends can enter this code or open the link. The room runs in your browser: closing this tab closes the room.',
+    "Friends can enter this code or open the link. The room runs in your browser: closing this tab closes the room, and on a phone friends can't join while you're in another app.",
   'menu.copyLink': 'Copy',
   'menu.copied': 'Copied',
   'menu.leaveRoom': 'Leave room',
@@ -45,7 +45,9 @@ export const en: Record<MessageKey, string> = {
   'error.badCode': 'Room codes are 5 characters (e.g. K7QXP).',
   'error.version': 'The game was updated; refresh the page.',
   'error.p2pFailed':
-    "Found the room but couldn't connect to your friend's browser (the network blocked it). Try again; if it still fails, one of you should switch networks (e.g. mobile data instead of Wi-Fi).",
+    "Found the room but couldn't connect to your friend's browser (the network blocked it). Try again; if it still fails, one of you should switch networks (e.g. mobile data instead of Wi-Fi). [relay: you {here} · host {host}]",
+  'error.noAnswer':
+    "Found the room but the host's browser didn't answer. The game must stay open and on screen on their device (on a phone, switching apps or locking the screen pauses the room). Then try again.",
   'error.unreachable':
     'Could not connect to the room. Check your internet connection and try again.',
   'error.closed': 'The room closed or the connection was lost (the host may have left).',

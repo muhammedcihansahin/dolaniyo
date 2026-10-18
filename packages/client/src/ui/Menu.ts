@@ -92,6 +92,7 @@ export class Menu {
   private lastScoreValue: number | null = null;
   private room: RoomInfo | null = null;
   private statusKey: MessageKey | null = null;
+  private statusParams: Record<string, string> | undefined;
   private statusIsError = false;
 
   constructor(handlers: MenuHandlers) {
@@ -225,8 +226,10 @@ export class Menu {
     if (busy) this.setStatus('menu.connecting', false);
   }
 
-  setStatus(key: MessageKey | null, isError = true): void {
+  /** `params`: metindeki yer tutucular (ör. bağlantı hatasının ayrıntısı). */
+  setStatus(key: MessageKey | null, isError = true, params?: Record<string, string>): void {
     this.statusKey = key;
+    this.statusParams = params;
     this.statusIsError = isError;
     this.renderStatus();
   }
@@ -260,7 +263,7 @@ export class Menu {
   }
 
   private renderStatus(): void {
-    this.status.textContent = this.statusKey ? t(this.statusKey) : '';
+    this.status.textContent = this.statusKey ? t(this.statusKey, this.statusParams) : '';
     this.status.classList.toggle('error', this.statusIsError);
   }
 

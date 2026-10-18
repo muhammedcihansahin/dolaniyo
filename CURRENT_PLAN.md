@@ -193,6 +193,27 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun tarayıcıda botlara karşı v
 - **Testler**: 53 test (yeni: 500k'da çekme dairesi, 5x'te gövdeden geçmeme, kurucunun hızı doğrudan ayarlaması ve 5x sınırı,
   kara delik — bir kez, sonradan doğan yem çekilmez, aynaya aynı tick'lerde yansır).
 
+### 0.11 Oyuncu İsteği: Arkadaş Odaya Bağlanamıyor (2026-10-18)
+
+- **Sorun**: katılan arkadaşta "Oda bulundu ama arkadaşının tarayıcısına bağlanılamadı (ağ izin vermedi)". İki
+  tarayıcı doğrudan bağlanamayınca veri TURN aktarıcısından gitmeli; Open Relay'in eski ortak şifresi
+  (`openrelayproject`) artık çalışmıyor (Metered kayıt + API anahtarı istiyor), PeerJS'in TURN'ü yalnızca UDP
+  deneniyordu. Ayrıca hata, kurucunun hiç yanıt vermediği durumla (uyuyan sekme/telefon) ağ engelini ayırmıyordu.
+- **Düzeltmeler** (`client/src/net/p2p.ts`):
+  - Open Relay kaldırıldı; PeerJS TURN'üne TCP de eklendi; kayıtsız `freestun.net` (free/free) eklendi (garantisiz).
+  - `VITE_TURN_URL`: bağlanmadan önce aktarıcı kimlik bilgileri bu adresten getirilir (RTCIceServer[] ya da
+    `{iceServers}`; 4 sn sınır, 10 dk önbellek; olmazsa onsuz devam). GitHub Pages derlemesi depo
+    değişkenlerinden `TURN_URL` / `ICE_SERVERS` alır. Önerilen: Metered Open Relay ücretsiz hesabı (20 GB/ay).
+  - Katılma süresi: eşleştirme sunucusuna 15 sn, sonra kurucuya bağlanmaya 30 sn (önce toplam 25 sn).
+  - Yeni hata `noAnswer`: kurucu teklife hiç yanıt vermedi. `p2pFailed` artık ayrıntı gösterir:
+    `[aktarıcı: sen ✓/✗ · kurucu ✓/✗]` (iki tarafın bir TURN adresi alıp alamadığı) — ekran görüntüsünden
+    hangi tarafın aktarıcıya ulaşamadığı anlaşılır. Kurucu ipucu: telefonda başka uygulamaya geçince
+    arkadaşlar katılamaz.
+- **Doğrulama**: yerel PeerJS sunucusu + iki başsız Chromium: normal katılma (3.4 sn, iki tarafta 2 kişi;
+  `VITE_TURN_URL` iki tarafta getirildi ve ICE listesinin başında), aktarıcısız zorlanmış ağ engeli →
+  `p2pFailed [sen ✗ · kurucu ✗]`, kayıtlı ama yanıtsız kurucu → `noAnswer`, olmayan kod → `notFound`.
+  Gerçek TURN sunucuları bu ortamdan denenemedi (ağ politikası engelliyor).
+
 ### 0.5 Sunucusuz Odalar ve Yayın (2026-10-18, oyuncu isteği)
 
 - **Karar**: odalar için ayrı sunucu/veritabanı yok; **odayı kuranın tarayıcısı odanın geçici sunucusu**. `§0.3`'teki
