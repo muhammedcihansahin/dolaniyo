@@ -10,6 +10,7 @@ import {
   turnRadiusFor,
   type SimConfig,
 } from '../src/config';
+import { SNAKE_COLOR } from '../src/colors';
 import { FoodKind } from '../src/sim/FoodStore';
 import { World, type SimEvent } from '../src/sim/World';
 
@@ -196,7 +197,7 @@ describe('World — hızlanma', () => {
     for (let i = 0; i < w.food.highWater; i++) {
       if (w.food.alive[i] && w.food.kind[i] === FoodKind.Boost) {
         dropped += w.food.value[i]!;
-        expect(w.food.color[i]).toBe(5);
+        expect(w.food.color[i]).toBe(SNAKE_COLOR);
       }
     }
     expect(dropped).toBeGreaterThan(0);
@@ -333,7 +334,7 @@ describe('World — çarpışmalar', () => {
     for (let i = 0; i < w.food.highWater; i++) {
       if (w.food.alive[i] && w.food.kind[i] === FoodKind.Death) {
         total += w.food.value[i]!;
-        expect(w.food.color[i]).toBe(9);
+        expect(w.food.color[i]).toBe(SNAKE_COLOR);
         expect(Math.hypot(w.food.x[i]!, w.food.y[i]!)).toBeLessThan(w.cfg.arenaRadius);
       }
     }

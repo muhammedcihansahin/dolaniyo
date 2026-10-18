@@ -29,6 +29,9 @@ export const PALETTE: readonly number[] = [
 
 export const SNAKE_COLOR_COUNT = 16;
 
+/** Bütün yılanlar (oyuncular ve botlar) bu renkle çizilir: PALETTE'teki kırmızı. */
+export const SNAKE_COLOR = 14;
+
 export const AMBIENT_FOOD_COLORS: readonly number[] = [16, 17, 18, 19, 20, 21, 1, 0, 4, 2, 8];
 
 export function colorToCss(color: number): string {
