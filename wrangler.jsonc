@@ -1,0 +1,10 @@
+// Cloudflare Workers Builds: GitHub'a her push'ta `npm run build` çalışır, ardından
+// `npx wrangler deploy` derlenmiş istemciyi statik site olarak yayınlar.
+// `name`, Cloudflare panelindeki Worker adıyla aynı olmalı.
+{
+  "name": "dolaniyo",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./packages/client/dist"
+  }
+}
