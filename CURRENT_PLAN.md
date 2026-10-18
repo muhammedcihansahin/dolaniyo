@@ -187,7 +187,10 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun tarayıcıda botlara karşı v
   aynı formülle sarmal akışı çizer (TICK'e "kara delik" bölümü eklendi). Yutulan ortam yemi yerinde doğmaz;
   harita boşalır, eksik saniyede ~3 800 yemle tamamlanır. Görüntü: kafada kara girdap, dönen mor/turuncu/mavi
   ışık diski, mor ekran flaşı, sarsıntı, "KARA DELİK!" duyurusu (herkese), sonda şok dalgası.
-- **Testler**: 52 test (yeni: 5x'te gövdeden geçmeme, kurucunun hızı doğrudan ayarlaması ve 5x sınırı,
+- **500k'da yem çekme dairesi 2 kat**: yeni `magnetBoostScore = 500 000`, `magnetBoostMul = 2`; mıknatıs
+  yarıçapı `r × 3 + 40`, 500k ve üstünde bunun 2 katı (500k'lık yılanda ~450 → ~900 u). Skor 500k'nın altına
+  inerse eski haline döner. Botların "uzaktaki değerli yem" kararı da aynı yarıçapı kullanır.
+- **Testler**: 53 test (yeni: 500k'da çekme dairesi, 5x'te gövdeden geçmeme, kurucunun hızı doğrudan ayarlaması ve 5x sınırı,
   kara delik — bir kez, sonradan doğan yem çekilmez, aynaya aynı tick'lerde yansır).
 
 ### 0.5 Sunucusuz Odalar ve Yayın (2026-10-18, oyuncu isteği)

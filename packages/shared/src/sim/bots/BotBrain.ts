@@ -173,7 +173,7 @@ export class BotBrain {
     // Ortam yeminde yalnızca en büyükleri, diğerlerinde (boost/ölüm) 3 ve üstü "değerli" sayılır
     const richValue =
       food.kind[best] === FoodKind.Ambient ? cfg.ambientValueMax * cfg.ambientGrowth : 3;
-    const rich = food.value[best]! >= richValue && bestD > magnetRadius(cfg, s.radius);
+    const rich = food.value[best]! >= richValue && bestD > magnetRadius(cfg, s.radius, s.score);
     return {
       angle: bestAngle,
       boost: rich && bestD < 220 && s.score > 25 && this.rng.chance(this.params.foodBoost),

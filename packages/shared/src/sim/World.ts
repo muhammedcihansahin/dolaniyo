@@ -347,7 +347,7 @@ export class World implements WorldView {
   private eatFood(s: Snake): void {
     const cfg = this.cfg;
     const food = this.food;
-    const mr = magnetRadius(cfg, s.radius);
+    const mr = magnetRadius(cfg, s.radius, s.score);
     const out = this.scratch;
     const n = food.query(s.x, s.y, mr + food.maxRadius, out);
     const settledBorn = this.tick - cfg.deathFoodSettleTicks;

@@ -129,6 +129,7 @@ paylaşın. Cloudflare için bir kez `npm run deploy:login` ve `npm run deploy:s
 - **H / Y / R**: oyun hızını artır / azalt / 1x (odada yalnızca kurucu; 0.5x–5x)
 - **Mini harita**: ilk üç yılan altın/gümüş/bronz ip gibi, başlarında 1-2-3 ile görünür; fareyi haritanın
   yanına getirince çıkan **+ / −** ile üç boy arasında büyütülür/küçültülür
+- **500 bin skor**: yılanın yem çekme dairesi 2 katına çıkar
 - **1 milyon skor**: yılan bir kereliğine kara deliğe dönüşür, o an haritadaki bütün yemi çekip yutar
 
 ## Proje yapısı

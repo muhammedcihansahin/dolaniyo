@@ -5,6 +5,7 @@ import {
   changeSpeedScale,
   foodRadius,
   lengthForScore,
+  magnetRadius,
   radiusForScore,
   speedFor,
   turnRadiusFor,
@@ -132,6 +133,23 @@ describe('World — hareket ve büyüme', () => {
     const w = emptyWorld();
     expect(radiusForScore(w.cfg, 1e6)).toBeGreaterThan(radiusForScore(w.cfg, 1e5));
     expect(radiusForScore(w.cfg, 1e6)).toBeGreaterThan(48); // eski üst sınır
+  });
+
+  it('500k skordan itibaren yem çekme dairesi 2 kat', () => {
+    const cfg = emptyWorld().cfg;
+    const r = radiusForScore(cfg, 500_000);
+    expect(magnetRadius(cfg, r, 500_000)).toBeCloseTo(magnetRadius(cfg, r, 499_999) * 2);
+    // Normal dairenin 1.5 katı uzaklıktaki yem: 499 999'da durur, 500 000'de çekilir
+    for (const score of [499_999, 500_000]) {
+      const w = emptyWorld();
+      const s = w.addSnake({ name: 'a', color: 0, x: 0, y: 0, angle: 0, score });
+      const d = magnetRadius(w.cfg, s.radius, 0) * 1.5;
+      const f = w.food.add(-d * 0.7, d * 0.7, 1, 0, FoodKind.Ambient);
+      const x0 = w.food.x[f]!;
+      w.step();
+      const pulled = w.food.alive[f] === 0 || w.food.x[f]! !== x0;
+      expect(pulled).toBe(score >= 500_000);
+    }
   });
 
   it('mıknatısla çekilen yem tick başındaki konumunu saklar (akıcı çizim için)', () => {

@@ -123,6 +123,9 @@ export interface SimConfig {
   magnetK: number;
   magnetBase: number;
   magnetSpeed: number;
+  /** Skor `magnetBoostScore`a ulaşınca mıknatıs yarıçapı (yem çekme dairesi) `magnetBoostMul` katı. */
+  magnetBoostScore: number;
+  magnetBoostMul: number;
 
   /** Kafa çarpışma dairesi = r * headHitScale */
   headHitScale: number;
@@ -198,6 +201,8 @@ export const DEFAULT_SIM_CONFIG: Readonly<SimConfig> = {
   magnetK: 3,
   magnetBase: 40,
   magnetSpeed: 900,
+  magnetBoostScore: 500_000,
+  magnetBoostMul: 2,
 
   headHitScale: 0.9,
   headZoneK: 1,
@@ -291,8 +296,9 @@ export function turnRateFor(cfg: SimConfig, radius: number, boosting: boolean): 
   return speedFor(cfg, radius, boosting) / turnRadiusFor(cfg, radius);
 }
 
-export function magnetRadius(cfg: SimConfig, radius: number): number {
-  return radius * cfg.magnetK + cfg.magnetBase;
+export function magnetRadius(cfg: SimConfig, radius: number, score = 0): number {
+  const r = radius * cfg.magnetK + cfg.magnetBase;
+  return score >= cfg.magnetBoostScore ? r * cfg.magnetBoostMul : r;
 }
 
 export function foodRadius(value: number): number {
