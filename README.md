@@ -1,6 +1,9 @@
 # Yılan.io
 
-Tarayıcıda oynanan neon yılan oyunu: tek başına botlara karşı veya aynı ağdaki arkadaşlarla bir odada.
+Tarayıcıda oynanan neon yılan oyunu: tek başına botlara karşı veya internet üzerinden arkadaşlarla bir odada.
+
+**Oyna: https://muhammedcihansahin.github.io/dolaniyo/** (ücretsiz, kurulum gerekmez; telefonda da çalışır)
+
 Yol haritası ve tasarım kararları: [CURRENT_PLAN.md](CURRENT_PLAN.md).
 
 ## Gereksinimler
@@ -75,42 +78,30 @@ Tarayıcıda http://localhost:5173 adresini açın. Odalar tarayıcıda çalış
 yeterlidir: `npm run dev:client`. Yerel Node sunucusu (8080) yalnızca, oyun `localhost`'tan açıldığında
 paylaşım bağlantısına bilgisayarın ağ adresini koymak için `/api/lan` verir.
 
-## Yayına alma (Cloudflare Pages, ücretsiz)
+## Yayına alma (GitHub Pages, ücretsiz, sürekli açık)
 
-Oyun tamamen statik bir sitedir (`packages/client/dist`); Cloudflare Pages'in ücretsiz planında trafik
-sınırı yoktur. Bir kez:
+Oyun tamamen statik bir sitedir (`packages/client/dist`); sunucu gerekmez. Odalar oyuncuların
+tarayıcılarında çalıştığı için site herkese açık bir adreste durunca dünyanın her yerinden herkes
+oynayabilir ve oda kurup katılabilir.
 
-```bash
-npm run deploy:login
-```
+**Adres: https://muhammedcihansahin.github.io/dolaniyo/**
 
-(tarayıcıda ücretsiz Cloudflare hesabınızla giriş yapın), sonra projeyi oluşturun:
+`main` dalına her push'ta `.github/workflows/pages.yml` testleri çalıştırır, oyunu derler ve GitHub
+Pages'e yükler (1–2 dakika). Bilgisayarın açık kalmasına gerek yoktur; site GitHub'da sürekli açık kalır.
 
-```bash
-npm run deploy:setup
-```
+Bir kez yapılacak ayar: GitHub'da depo → **Settings → Pages → Build and deployment → Source:
+GitHub Actions**. Bu ayardan önce çalışmış bir yayın başarısız olduysa **Actions → GitHub Pages → Run
+workflow** ile yeniden çalıştırın.
 
-Her güncellemede:
+Güncelleme: değişiklikleri `main`'e gönderin (`git push`); site kendiliğinden yenilenir. İlerleme ve
+hatalar depodaki **Actions** sekmesinde görünür.
 
-```bash
-npm run deploy
-```
+### Cloudflare (isteğe bağlı)
 
-Site `https://cihanio.pages.dev` adresinde yayına girer. Kendi alan adınızı (ör. `cihanio.com`) almak
-isterseniz Cloudflare panelinde **Domain Registration** ile satın alıp **Workers & Pages → cihanio →
-Custom domains** bölümünden bağlayın.
-
-### GitHub Pages (ücretsiz, Türkiye'den erişilebilir)
-
-Bazı Türk internet sağlayıcıları `*.pages.dev` adreslerini engelliyor. O durumda aynı derlemeyi GitHub
-Pages'e yükleyin: derleme göreli yollar kullandığı için alt klasörde de çalışır.
-
-1. `npm run build` → `packages/client/dist` klasörü oluşur.
-2. GitHub'da `KULLANICIADI.github.io` adlı **Public** bir depo açın ("Add a README" işaretli).
-3. Depoda **Add file → Upload files**; `dist` klasörünün **içindekileri** (`index.html`, `assets`, `.nojekyll`,
-   `_headers`) sürükleyip **Commit changes**.
-4. **Settings → Pages → Build and deployment**: Source **Deploy from a branch**, Branch **main** / **(root)** → **Save**.
-5. 1–2 dakika sonra `https://KULLANICIADI.github.io` açılır. Güncellerken 1 ve 3'ü tekrarlayın.
+Aynı derleme Cloudflare'e de yüklenebilir (`wrangler.jsonc`, `npm run deploy`). Ancak bazı Türk internet
+sağlayıcıları `*.pages.dev` adreslerini engelliyor; herkesin erişebilmesi için GitHub Pages adresini
+paylaşın. Cloudflare için bir kez `npm run deploy:login` ve `npm run deploy:setup`, her güncellemede
+`npm run deploy`.
 
 ## Diğer komutlar
 
@@ -120,7 +111,7 @@ Pages'e yükleyin: derleme göreli yollar kullandığı için alt klasörde de �
 | `npm run typecheck`            | Tüm paketlerde TypeScript tip kontrolü                                      |
 | `npm run build`                | İstemciyi `packages/client/dist` klasörüne derler                           |
 | `npm start`                    | Yerel sunucu: derlenmiş istemciyi, `/api/lan` ve `/health`'i 8080'den sunar |
-| `npm run deploy`               | Derleyip Cloudflare Pages'e yükler (önce `deploy:login` ve `deploy:setup`)  |
+| `npm run deploy`               | Derleyip Cloudflare Pages'e yükler (GitHub Pages için `main`'e push yeter)  |
 | `npm run bench -- 120 20 5000` | Başsız simülasyon ölçümü (saniye, bot sayısı, arena yarıçapı)               |
 | `npm run format`               | Prettier ile biçimlendirme                                                  |
 | `npm run launcher`             | `Oyna.exe` başlatıcısını `tools/launcher/Launcher.cs`'ten yeniden derler    |
