@@ -210,10 +210,11 @@ export class GameApp {
       this.menu.setStatus(null);
       return true;
     } catch (err) {
-      const code: NetErrorCode = err instanceof NetError ? err.code : 'unreachable';
+      const netErr = err instanceof NetError ? err : null;
+      const code: NetErrorCode = netErr?.code ?? 'unreachable';
       this.setRoomParam(null);
       setHostedRoom(null);
-      this.menu.setStatus(quiet ? null : `error.${code}`);
+      this.menu.setStatus(quiet ? null : `error.${code}`, true, netErr?.params);
       return false;
     } finally {
       this.connecting = false;

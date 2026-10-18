@@ -31,7 +31,7 @@ export const tr = {
   'menu.roomMeta': '{people} kişi · {bots} bot · hız {speed}x',
   'menu.roomHint': 'Başka arkadaşların da bu kodu girerek ya da bağlantıyı açarak katılabilir.',
   'menu.roomHintHost':
-    'Arkadaşların bu kodu girsin ya da bağlantıyı açsın. Oda senin tarayıcında çalışıyor: sekmeyi kapatırsan oda kapanır.',
+    'Arkadaşların bu kodu girsin ya da bağlantıyı açsın. Oda senin tarayıcında çalışıyor: sekmeyi kapatırsan oda kapanır; telefonda başka uygulamaya geçersen arkadaşların katılamaz.',
   'menu.copyLink': 'Kopyala',
   'menu.copied': 'Kopyalandı',
   'menu.leaveRoom': 'Odadan çık',
@@ -43,7 +43,9 @@ export const tr = {
   'error.badCode': 'Oda kodu 5 karakterdir (ör. K7QXP).',
   'error.version': 'Oyun güncellendi; sayfayı yenile.',
   'error.p2pFailed':
-    'Oda bulundu ama arkadaşının tarayıcısına bağlanılamadı (ağ izin vermedi). Tekrar dene; olmazsa biriniz farklı bir ağa (ör. Wi-Fi yerine mobil veri) geçsin.',
+    'Oda bulundu ama arkadaşının tarayıcısına bağlanılamadı (ağ izin vermedi). Tekrar dene; olmazsa biriniz farklı bir ağa (ör. Wi-Fi yerine mobil veri) geçsin. [aktarıcı: sen {here} · kurucu {host}]',
+  'error.noAnswer':
+    'Oda bulundu ama odayı kuranın tarayıcısı yanıt vermedi. Oyun onda açık ve ekranda olmalı (telefonda başka uygulamaya geçince ya da ekran kilitlenince oda durur). Sonra tekrar dene.',
   'error.unreachable': 'Odaya bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene.',
   'error.closed': 'Oda kapandı ya da bağlantı koptu (odayı kuran ayrılmış olabilir).',
   'error.noWebrtc': 'Tarayıcın odaları desteklemiyor (WebRTC yok). Güncel bir tarayıcı dene.',

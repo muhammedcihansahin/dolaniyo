@@ -62,9 +62,18 @@ Odayı kuran kişinin **tarayıcısı odanın sunucusudur**: dünya, botlar ve 3
 
 - Oda kodu, ücretsiz PeerJS eşleştirme sunucusunda (`0.peerjs.com`) kurucunun geçici kimliği olur
   (`yilan-io-K7QXP`). Katılan bu kimliği bulur, sonra tüm oyun verisi iki tarayıcı arasında doğrudan
-  (WebRTC veri kanalı) akar. Doğrudan bağlantı kurulamayan ağlarda (mobil veri, okul/iş ağı) veri ücretsiz
-  TURN aktarıcıları üzerinden gider (PeerJS ve Open Relay; `VITE_ICE_SERVERS` ile kendi aktarıcınızı
-  ekleyebilirsiniz). Yine de bağlanılamazsa oyun bunu ayrıca söyler; biriniz başka bir ağa geçmeyi deneyebilir.
+  (WebRTC veri kanalı) akar. Doğrudan bağlantı kurulamayan ağlarda (mobil veri, okul/iş ağı) veri bir TURN
+  aktarıcısı üzerinden gider. Kayıtsız ücretsiz aktarıcılar (PeerJS, freestun.net) garanti vermez; yine de
+  bağlanılamazsa oyun bunu söyler ve sonuna `[aktarıcı: sen ✓/✗ · kurucu ✓/✗]` ekler (✗: o tarafın
+  tarayıcısı hiçbir aktarıcıya ulaşamadı). Kurucunun tarayıcısı hiç yanıt vermezse (sekme/telefon uyuyor)
+  ayrı bir hata çıkar.
+- **Güvenilir aktarıcı (önerilir)**: [Metered Open Relay](https://www.metered.ca/tools/openrelay/)'de ücretsiz
+  hesap açın (ayda 20 GB, 80/443 portları; çoğu katı ağdan geçer). Panelde verilen kimlik bilgisi adresini
+  (`https://UYGULAMA.metered.live/api/v1/turn/credentials?apiKey=ANAHTAR`) GitHub'da depo → **Settings →
+  Secrets and variables → Actions → Variables** altına `TURN_URL` adıyla ekleyin ve yayını yeniden
+  çalıştırın (**Actions → GitHub Pages → Run workflow**). Yerel derlemede aynı şey `VITE_TURN_URL`;
+  sabit ek sunucular için `ICE_SERVERS` / `VITE_ICE_SERVERS` (RTCIceServer[] JSON). Bu adres sitede
+  herkese görünür; Metered'in bu anahtarı tarayıcıda kullanılmak için verilir.
 - Yerel deneme için kendi PeerJS sunucunuz: `VITE_PEER_SERVER=127.0.0.1:9000/yol npm run dev:client`.
 - **Kurucu sekmeyi kapatırsa ya da Odadan çık derse oda biter.** Kurucu sayfayı yenilerse oda aynı kodla
   yeniden kurulur (yeni dünya) ve arkadaşlar birkaç saniye içinde kendiliğinden yeniden bağlanır.
