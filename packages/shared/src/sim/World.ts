@@ -1,4 +1,4 @@
-import { AMBIENT_FOOD_COLORS, SNAKE_COLOR } from '../colors';
+import { AMBIENT_FOOD_COLORS } from '../colors';
 import {
   DT,
   bodyTrimMargin,
@@ -111,7 +111,7 @@ export class World implements WorldView {
     const s = new Snake(
       this.nextSnakeId++,
       opts.name,
-      SNAKE_COLOR, // istenen renk yok sayılır: bütün yılanlar kırmızı
+      opts.color,
       opts.isBot ?? false,
       cfg.segmentSpacing,
     );
