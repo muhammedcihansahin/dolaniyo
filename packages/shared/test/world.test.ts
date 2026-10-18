@@ -129,6 +129,17 @@ describe('World — hareket ve büyüme', () => {
     expect(lengthForScore(cfg, 0.5)).toBeGreaterThan(cfg.lenBase);
   });
 
+  it('500k skordan sonra kalınlaşma belirgin hızlanır', () => {
+    const cfg = emptyWorld().cfg;
+    // Skor ikiye katlandığında kalınlık artışı: 500k→1M, 250k→500k'nın 2 katından fazla
+    const grow = (a: number) => radiusForScore(cfg, a * 2) - radiusForScore(cfg, a);
+    expect(grow(500_000)).toBeGreaterThan(grow(250_000) * 2);
+    expect(grow(1_000_000)).toBeGreaterThan(grow(500_000));
+    // 500k'ya kadar eskisiyle aynı; 1M'de ~209 (eskiden ~173)
+    expect(radiusForScore(cfg, 500_000)).toBeCloseTo(137, 0);
+    expect(radiusForScore(cfg, 1_000_000)).toBeGreaterThan(200);
+  });
+
   it('büyümenin üst sınırı yok', () => {
     const w = emptyWorld();
     expect(radiusForScore(w.cfg, 1e6)).toBeGreaterThan(radiusForScore(w.cfg, 1e5));

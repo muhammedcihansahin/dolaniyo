@@ -153,7 +153,8 @@ export const DEFAULT_SIM_CONFIG: Readonly<SimConfig> = {
   lenTierExp: [0.65, 0.65, 0.67, 0.68, 0.7, 0.72, 0.76],
   rBase: 12,
   rK: 3,
-  rTierMul: [0.7, 3.5, 6, 8, 10, 12, 16],
+  // 500 binden sonra kalınlaşma eskisinin (12, 16) 2 katı
+  rTierMul: [0.7, 3.5, 6, 8, 10, 24, 32],
 
   baseSpeed: 276,
   boostSpeed: 736,

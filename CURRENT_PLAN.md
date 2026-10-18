@@ -193,6 +193,15 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun tarayıcıda botlara karşı v
 - **Testler**: 53 test (yeni: 500k'da çekme dairesi, 5x'te gövdeden geçmeme, kurucunun hızı doğrudan ayarlaması ve 5x sınırı,
   kara delik — bir kez, sonradan doğan yem çekilmez, aynaya aynı tick'lerde yansır).
 
+### 0.12 Oyuncu İsteği: 500k'dan Sonra Daha Çok Kalınlaşma (2026-10-18)
+
+- `rTierMul` son iki kademesi 2 katına: 500k–1M **12 → 24**, 1M üstü **16 → 32** (skor her ikiye katlandığında
+  yarıçap `rK × çarpan` = 72 / 96 u artar; önce 36 / 48). 500k'ya kadar ve boy (uzunluk) değişmedi.
+- Yarıçap: 500k → 137 (aynı), 750k → 179 (önce 158), 1M → 209 (173), 2M → 305 (221), 5M → 432 (284),
+  10M → 528 (332). Kamera zaten ~140'tan itibaren en uzak zoomda (0.28); kalınlaşma ekranda görünür.
+- Oda kuranın ayarı katılanlara INIT'teki `cfg` ile gider; protokol değişmedi.
+- Test: 500k→1M kalınlık artışı 250k→500k'nın 2 katından fazla; 500k'da 137, 1M'de 200'ün üstü.
+
 ### 0.11 Oyuncu İsteği: Arkadaş Odaya Bağlanamıyor (2026-10-18)
 
 - **Sorun**: katılan arkadaşta "Oda bulundu ama arkadaşının tarayıcısına bağlanılamadı (ağ izin vermedi)". İki
