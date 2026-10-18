@@ -22,7 +22,13 @@
       </button>
       <div id="leaderboard"></div>
       <div id="stats"></div>
-      <canvas id="minimap"></canvas>
+      <div id="minimap-box" class="mm-size-1">
+        <canvas id="minimap"></canvas>
+        <div id="minimap-zoom">
+          <button id="mm-plus" type="button" tabindex="-1">+</button>
+          <button id="mm-minus" type="button" tabindex="-1">&minus;</button>
+        </div>
+      </div>
       <div id="hud-toast"></div>
       <div id="joystick"><div id="joystick-knob"></div></div>
       <button id="boost-btn" type="button">
@@ -57,7 +63,7 @@
         </label>
         <label class="slider-row" for="speed">
           <span id="speed-label"></span>
-          <input id="speed" type="range" min="50" max="200" step="5" />
+          <input id="speed" type="range" min="50" max="500" step="5" />
           <output id="speed-value" for="speed"></output>
         </label>
         <div class="friends-row">
@@ -76,6 +82,11 @@
           <strong id="room-code"></strong>
           <span id="room-meta"></span>
         </div>
+        <label id="room-speed-row" class="slider-row" for="room-speed" hidden>
+          <span id="room-speed-label"></span>
+          <input id="room-speed" type="range" min="50" max="500" step="25" />
+          <output id="room-speed-value" for="room-speed"></output>
+        </label>
         <p id="room-hint"></p>
         <div class="room-link-row">
           <input id="room-link" type="text" readonly />

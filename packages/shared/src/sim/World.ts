@@ -1,6 +1,7 @@
 import { AMBIENT_FOOD_COLORS } from '../colors';
 import {
   DT,
+  blackHoleArrivalTick,
   bodyTrimMargin,
   clampSpeedScale,
   foodRadius,
@@ -21,10 +22,18 @@ import { Snake } from './Snake';
 import { findSpawnPoint } from './spawn';
 import type { WorldView } from './WorldView';
 
+/** Kafanın tick içindeki yolunu tararken bakılan en fazla nokta (5x boost'ta bile yeterli). */
+const MAX_HEAD_PROBES = 16;
+
 export type DeathReason = 'border' | 'body' | 'head' | 'left';
 
 export type SimEvent =
   | { type: 'spawned'; id: number }
+  /**
+   * Yılan `blackHoleScore`a ulaştı: bu tick'ten (`tick`) önce doğmuş bütün yemleri çekip
+   * yutmaya başlar (yutulan yemler `foodEaten` olarak da gelir).
+   */
+  | { type: 'blackHole'; id: number; tick: number }
   | {
       type: 'died';
       id: number;
@@ -59,6 +68,15 @@ export interface AddSnakeOptions {
   angle?: number;
 }
 
+/** Süren kara delik: yutulacak yemler varış sırasıyla. */
+interface BlackHole {
+  snakeId: number;
+  slots: Int32Array;
+  ids: Uint32Array;
+  arrive: Int32Array;
+  next: number;
+}
+
 interface Death {
   reason: DeathReason;
   killerId: number;
@@ -87,6 +105,7 @@ export class World implements WorldView {
   foodCapped = false;
 
   private events: SimEvent[] = [];
+  private blackHole: BlackHole | null = null;
   private nextSnakeId = 1;
   private trimMargin: number;
   private readonly scratch: number[] = [];
@@ -116,6 +135,7 @@ export class World implements WorldView {
       cfg.segmentSpacing,
     );
     s.score = opts.score ?? cfg.startScore;
+    s.blackHoleDone = s.score >= cfg.blackHoleScore;
     this.updateSize(s);
     let { x, y, angle } =
       opts.x !== undefined && opts.y !== undefined
@@ -161,6 +181,7 @@ export class World implements WorldView {
     const list = this.snakeList;
     for (let i = 0; i < list.length; i++) this.moveSnake(list[i]!);
     for (let i = 0; i < list.length; i++) this.eatFood(list[i]!);
+    this.updateBlackHole();
     this.rebuildGrid();
     const deaths = this.detectCollisions();
     if (deaths.size > 0) {
@@ -182,6 +203,81 @@ export class World implements WorldView {
 
   rankOf(id: number): number {
     return rankAmong(this.snakeList, this.snakes.get(id));
+  }
+
+  /** Kara deliği başlatır (1M'a ulaşan ilk yılan) ya da sürenin yemlerini yutturur. */
+  private updateBlackHole(): void {
+    const cfg = this.cfg;
+    if (!this.blackHole) {
+      for (const s of this.snakeList) {
+        if (s.blackHoleDone || s.score < cfg.blackHoleScore) continue;
+        s.blackHoleDone = true;
+        this.startBlackHole(s);
+        break;
+      }
+    }
+    const bh = this.blackHole;
+    if (!bh) return;
+    const s = this.snakes.get(bh.snakeId);
+    if (!s) {
+      this.blackHole = null; // yılan öldü: kalan yemler yerinde kalır
+      return;
+    }
+    const food = this.food;
+    let eaten = false;
+    while (bh.next < bh.slots.length && bh.arrive[bh.next]! <= this.tick) {
+      const i = bh.next++;
+      const slot = bh.slots[i]!;
+      if (!food.alive[slot] || food.id[slot] !== bh.ids[i]) continue; // bu arada başkası yedi
+      s.score += food.value[slot]!;
+      eaten = true;
+      this.events.push({
+        type: 'foodEaten',
+        foodId: food.id[slot]!,
+        x: food.x[slot]!,
+        y: food.y[slot]!,
+        color: food.color[slot]!,
+        radius: food.radius[slot]!,
+        kind: food.kind[slot] as FoodKind,
+        eaterId: s.id,
+      });
+      // Yutulan ortam yemi yerinde yeniden doğmaz; harita boşalır, eksik zamanla tamamlanır
+      food.remove(slot, s.id);
+    }
+    if (eaten) this.updateSize(s);
+    if (bh.next >= bh.slots.length) this.blackHole = null;
+  }
+
+  private startBlackHole(s: Snake): void {
+    const food = this.food;
+    const t0 = this.tick;
+    const slots: number[] = [];
+    for (let slot = 0; slot < food.highWater; slot++) {
+      // Bu tick doğan yem dahil değil (istemci de aynı kuralla seçer)
+      if (food.alive[slot] && food.born[slot]! < t0) slots.push(slot);
+    }
+    const arrive = new Int32Array(slots.length);
+    for (let i = 0; i < slots.length; i++) {
+      const dx = food.x[slots[i]!]! - s.x;
+      const dy = food.y[slots[i]!]! - s.y;
+      arrive[i] = blackHoleArrivalTick(this.cfg, t0, Math.sqrt(dx * dx + dy * dy));
+    }
+    const order = slots.map((_, i) => i).sort((a, b) => arrive[a]! - arrive[b]!);
+    const bh: BlackHole = {
+      snakeId: s.id,
+      slots: new Int32Array(order.length),
+      ids: new Uint32Array(order.length),
+      arrive: new Int32Array(order.length),
+      next: 0,
+    };
+    for (let k = 0; k < order.length; k++) {
+      const i = order[k]!;
+      bh.slots[k] = slots[i]!;
+      bh.ids[k] = food.id[slots[i]!]!;
+      bh.arrive[k] = arrive[i]!;
+    }
+    this.blackHole = bh;
+    this.events.push({ type: 'blackHole', id: s.id, tick: t0 });
   }
 
   private updateSize(s: Snake): void {
@@ -324,23 +420,35 @@ export class World implements WorldView {
         continue;
       }
       const hr = a.radius * cfg.headHitScale;
-      const n = grid.query(a.x, a.y, hr + grid.maxRadius);
-      const hits = grid.hits;
+      // Hızlı oyunda (ör. 5x) kafa bir tick'te gövde kalınlığından fazla yol alır: yalnızca
+      // varış noktasına bakmak gövdenin içinden geçip gitmesine izin verirdi. Bu yüzden kafanın
+      // bu tick'te izlediği yol, aralığı kafa yarıçapını geçmeyen noktalarla taranır.
+      const mx = a.x - a.px;
+      const my = a.y - a.py;
+      const travel = Math.sqrt(mx * mx + my * my);
+      const probes = Math.min(MAX_HEAD_PROBES, Math.max(1, Math.ceil(travel / Math.max(4, hr))));
       let bodyKiller = 0;
       let headOpp = 0;
-      for (let k = 0; k < n; k++) {
-        const i = hits[k]!;
-        const owner = grid.sOwner[i]!;
-        if (owner === a.id) continue;
-        const rr = hr + grid.sr[i]!;
-        const dx = grid.sx[i]! - a.x;
-        const dy = grid.sy[i]! - a.y;
-        if (dx * dx + dy * dy >= rr * rr) continue;
-        if (grid.sArc[i]! < cfg.headZoneK * grid.sr[i]!) {
-          if (!headOpp) headOpp = owner;
-        } else {
-          bodyKiller = owner;
-          break;
+      for (let p = 1; p <= probes && !bodyKiller && !headOpp; p++) {
+        const t = p / probes;
+        const hx = a.px + mx * t;
+        const hy = a.py + my * t;
+        const n = grid.query(hx, hy, hr + grid.maxRadius);
+        const hits = grid.hits;
+        for (let k = 0; k < n; k++) {
+          const i = hits[k]!;
+          const owner = grid.sOwner[i]!;
+          if (owner === a.id) continue;
+          const rr = hr + grid.sr[i]!;
+          const dx = grid.sx[i]! - hx;
+          const dy = grid.sy[i]! - hy;
+          if (dx * dx + dy * dy >= rr * rr) continue;
+          if (grid.sArc[i]! < cfg.headZoneK * grid.sr[i]!) {
+            if (!headOpp) headOpp = owner;
+          } else {
+            bodyKiller = owner;
+            break;
+          }
         }
       }
       if (bodyKiller) {

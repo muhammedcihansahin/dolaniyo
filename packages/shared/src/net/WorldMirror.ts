@@ -158,6 +158,10 @@ export class WorldMirror implements WorldView {
       this.slotOf.delete(id);
     }
 
+    const holes = r.u32();
+    for (let i = 0; i < holes; i++)
+      events.push({ type: 'blackHole', id: r.u32(), tick: this.tick });
+
     // Ölenler en son çıkarılır: aynı tick'te yedikleri yemin olayı yiyeni bulabilsin
     if (deaths.length > 0) {
       for (const e of deaths) if (e.type === 'died') this.snakes.delete(e.id);

@@ -44,11 +44,14 @@ Yöneticisi'nden sonlandırılsa bile). Ayarlar `%LOCALAPPDATA%\Yilan.io\baslati
 Başlatıcının kaynağı `tools/launcher/Launcher.cs`; değiştirince `npm run launcher` ile yeniden derlenir
 (Windows'taki .NET Framework derleyicisi yeterli, ek kurulum gerekmez).
 
-- **Tek başına**: menüdeki **Ayarlar**'dan bot sayısını (0–32) ve oyun hızını (%50–%200) seçin, takma
+- **Tek başına**: menüdeki **Ayarlar**'dan bot sayısını (0–32) ve oyun hızını (0.5x–5x) seçin, takma
   adınızı yazıp **Oyna**'ya basın. Başka pencereye geçince botlu oyun duraklar.
 - **Arkadaşlarla**: **Oda kur**'a basın (oda, sürgülerdeki bot sayısı ve hızla kurulur). Menüde 5 karakterlik oda
   kodu ve bir bağlantı çıkar; arkadaşlarınız kodu **Oda kodu** kutusuna yazıp **Katıl**'a basar ya da
-  bağlantıyı açar. Odada en fazla 16 kişi olabilir. Ölünce aynı odada tekrar **Oyna** denir;
+  bağlantıyı açar. Bağlantı her zaman oyunun herkese açık adresini
+  (`muhammedcihansahin.github.io/dolaniyo`) gösterir; oyunu bilgisayarınızda `Oyna.exe` ile açtıysanız da
+  başka evdeki arkadaşınız bu adresten aynı odaya girer. Odayı kuran, menüdeki **Oda hızı** sürgüsüyle
+  (ya da oyunda H/Y/R ile) odanın hızını 5x'e kadar ayarlayabilir. Odada en fazla 16 kişi olabilir. Ölünce aynı odada tekrar **Oyna** denir;
   **Odadan çık** tek kişilik oyuna döndürür. Odada sizden başka en az bir kişi varsa siz başka pencereye
   geçseniz de oyun akmaya devam eder; odada tek başınaysanız oda da duraklar.
 
@@ -59,7 +62,10 @@ Odayı kuran kişinin **tarayıcısı odanın sunucusudur**: dünya, botlar ve 3
 
 - Oda kodu, ücretsiz PeerJS eşleştirme sunucusunda (`0.peerjs.com`) kurucunun geçici kimliği olur
   (`yilan-io-K7QXP`). Katılan bu kimliği bulur, sonra tüm oyun verisi iki tarayıcı arasında doğrudan
-  (WebRTC veri kanalı) akar. Doğrudan bağlantı kurulamayan ağlarda PeerJS'in ücretsiz TURN aktarıcısı kullanılır.
+  (WebRTC veri kanalı) akar. Doğrudan bağlantı kurulamayan ağlarda (mobil veri, okul/iş ağı) veri ücretsiz
+  TURN aktarıcıları üzerinden gider (PeerJS ve Open Relay; `VITE_ICE_SERVERS` ile kendi aktarıcınızı
+  ekleyebilirsiniz). Yine de bağlanılamazsa oyun bunu ayrıca söyler; biriniz başka bir ağa geçmeyi deneyebilir.
+- Yerel deneme için kendi PeerJS sunucunuz: `VITE_PEER_SERVER=127.0.0.1:9000/yol npm run dev:client`.
 - **Kurucu sekmeyi kapatırsa ya da Odadan çık derse oda biter.** Kurucu sayfayı yenilerse oda aynı kodla
   yeniden kurulur (yeni dünya) ve arkadaşlar birkaç saniye içinde kendiliğinden yeniden bağlanır.
 - Kurucu başka sekmeye geçse de oda akar (döngü bir Worker saatinden beslenir). Kurucunun yükleme hızı
@@ -105,21 +111,25 @@ paylaşın. Cloudflare için bir kez `npm run deploy:login` ve `npm run deploy:s
 
 ## Diğer komutlar
 
-| Komut                          | Açıklama                                                                    |
-| ------------------------------ | --------------------------------------------------------------------------- |
-| `npm test`                     | Birim testleri (Vitest)                                                     |
-| `npm run typecheck`            | Tüm paketlerde TypeScript tip kontrolü                                      |
-| `npm run build`                | İstemciyi `packages/client/dist` klasörüne derler                           |
-| `npm start`                    | Yerel sunucu: derlenmiş istemciyi, `/api/lan` ve `/health`'i 8080'den sunar |
-| `npm run deploy`               | Derleyip Cloudflare Pages'e yükler (GitHub Pages için `main`'e push yeter)  |
-| `npm run bench -- 120 20 5000` | Başsız simülasyon ölçümü (saniye, bot sayısı, arena yarıçapı)               |
-| `npm run format`               | Prettier ile biçimlendirme                                                  |
-| `npm run launcher`             | `Oyna.exe` başlatıcısını `tools/launcher/Launcher.cs`'ten yeniden derler    |
+| Komut                             | Açıklama                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| `npm test`                        | Birim testleri (Vitest)                                                     |
+| `npm run typecheck`               | Tüm paketlerde TypeScript tip kontrolü                                      |
+| `npm run build`                   | İstemciyi `packages/client/dist` klasörüne derler                           |
+| `npm start`                       | Yerel sunucu: derlenmiş istemciyi, `/api/lan` ve `/health`'i 8080'den sunar |
+| `npm run deploy`                  | Derleyip Cloudflare Pages'e yükler (GitHub Pages için `main`'e push yeter)  |
+| `npm run bench -- 120 20 20000 1` | Başsız simülasyon ölçümü (saniye, bot sayısı, arena yarıçapı, oyun hızı)    |
+| `npm run format`                  | Prettier ile biçimlendirme                                                  |
+| `npm run launcher`                | `Oyna.exe` başlatıcısını `tools/launcher/Launcher.cs`'ten yeniden derler    |
 
 ## Kontroller
 
 - **Fare**: yön · **Sol tık / Space**: hızlan (skor harcar)
 - **←/→ veya A/D**: klavyeyle dön · **Esc**: menüye dön
+- **H / Y / R**: oyun hızını artır / azalt / 1x (odada yalnızca kurucu; 0.5x–5x)
+- **Mini harita**: ilk üç yılan altın/gümüş/bronz ip gibi, başlarında 1-2-3 ile görünür; fareyi haritanın
+  yanına getirince çıkan **+ / −** ile üç boy arasında büyütülür/küçültülür
+- **1 milyon skor**: yılan bir kereliğine kara deliğe dönüşür, o an haritadaki bütün yemi çekip yutar
 
 ## Proje yapısı
 

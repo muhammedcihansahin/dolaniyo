@@ -151,6 +151,45 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun tarayıcıda botlara karşı v
 - **Sonuç** (aynı senaryo): kare ~57 ms → **~5 ms** (CPU ~2 ms + GPU ~3 ms; gerçek döngüde ikisi paralel çalışır), çizilen nesne ~30 000 → ~2 500. Oyuncu 67 000 u boyunda dev yılanken (en uzak zoom, ekranda ~1 200 yem) de ~5 ms. 144 Hz için kare bütçesi 6.9 ms.
 
 
+### 0.10 Oyuncu İstekleri: Arkadaş Odası, Mini Harita, 5x Oda Hızı, Büyük Harita, Kara Delik (2026-10-18)
+
+- **Renkler**: "bütün yılanlar kırmızı" değişikliği geri alındı; her yılan yine kendi rengiyle.
+- **Arkadaşla aynı oda**:
+  - Farklı ağlardaki iki tarayıcı çoğu zaman doğrudan bağlanamıyordu (yalnızca tek STUN + PeerJS TURN). Artık
+    birkaç STUN (Google, Cloudflare) ve iki ücretsiz TURN aktarıcısı (PeerJS, Open Relay) deneniyor; derlemede
+    `VITE_ICE_SERVERS` ile ek aktarıcı verilebilir.
+  - Katılırken ağ bağlantıya izin vermezse 25 sn beklemek yerine hemen ayrı bir hata (`p2pFailed`) çıkıyor;
+    katılan eşleştirme sunucusundan bağlantıdan 10 sn sonra ayrılıyor (geç gelen ağ adayları kaybolmasın).
+  - Paylaşım bağlantısı oyun yerelden (`Oyna.exe`, localhost, 192.168.x.x) açıldıysa herkese açık adresi
+    (GitHub Pages) gösteriyor; eskiden yerel ağ adresi veriyordu, başka evden açılmıyordu.
+  - `VITE_PEER_SERVER` ile kendi PeerJS sunucusu. Yerel PeerJS sunucusu + iki başsız Chromium ile uçtan uca
+    denendi: kodla katılma, iki oyuncunun birbirini görmesi, kurucunun menüden 4.5x yapması ve misafire yansıması.
+- **Harita çapı 2 kat**: R 10 000 → **20 000** (oda ve tek kişilik). Yem yoğunluğu aynı: ortam yemi ~31 400 →
+  ~125 700. `simbench` 20 bot / 120 sn: tick ort. 0.75 ms (önce 0.35). Katılanın ilk paketi (INIT) ~2.8 MB.
+- **Oda hızı 5x'e kadar**: `SPEED_SCALE_MAX` 2 → **5** (menü sürgüsü 0.5x–5x). Odayı kuran menüdeki
+  **Oda hızı** sürgüsüyle ayarlar (yeni mesaj `{t:'speed', set}`; yetki kuralı H/Y/R ile aynı). **Protokol v5.**
+  - Hızlı oyunda kafa bir tick'te gövde kalınlığından fazla yol aldığı için gövdenin içinden geçebiliyordu:
+    çarpışma artık kafanın tick içindeki yolunu kafa yarıçapı aralıklarla tarıyor (en çok 16 nokta). Test:
+    5x boost'ta 12 farklı başlangıçta da gövdeye çarpıyor (tarama kapalıyken biri içinden geçiyordu).
+  - `simbench` 5x / 20 bot / 120 sn: tick ort. 1.1 ms, sınıra çarpan bot yok.
+- **Mini harita**: varsayılan daha büyük; fare haritanın 70 px yakınına gelince **+ / −** düğmeleri belirir, üç
+  boy (küçük/orta/büyük, localStorage). Harita fareyi engellemez (üzerindeyken de yön/hızlanma çalışır);
+  dokunmatikte düğmeler hep görünür. İlk üç yılan gövdeleri boyunca **ip gibi** (altın/gümüş/bronz) ve başlarında
+  **1, 2, 3** rozetiyle; oyuncunun kendisi beyaz ip; 4–10. sıradakiler nokta.
+- **Kalınlaşma kademeleri**: `growthTierScores = [10k, 50k, 100k, 250k, 500k, 1M]`,
+  `rTierMul = [0.7, 3.5, 6, 8, 10, 12, 16]`, `lenTierExp = [0.65, 0.65, 0.67, 0.68, 0.7, 0.72, 0.76]`.
+  Yarıçap / boy: 400 → 23 / 808, 10k → 33 / 5 700, 50k → 57 / 16 000, 100k → 75 / 25 400,
+  250k → 107 / 47 200, 500k → 137 / 76 600, 1M → 173 / 126 000, 10M → 332 / 725 000 (10k altı aynı).
+  Kamera dev yılanlarda biraz daha uzaklaşır (en uzak zoom 0.35 → 0.28).
+- **Kara delik (1M)**: yılan skoru ilk kez **1 000 000**'a ulaşınca (yılan başına bir kez; o skorla doğan açmaz)
+  o tick'ten önce doğmuş bütün yem kafasına akar ve yutulur. Yakındaki önce, en uzaktaki 3 sn sonra
+  (`blackHoleArrivalTick`: süre ∝ √uzaklık). Sunucu yemi tam o tick'te siler; ağda her yem taşınmaz, istemci
+  aynı formülle sarmal akışı çizer (TICK'e "kara delik" bölümü eklendi). Yutulan ortam yemi yerinde doğmaz;
+  harita boşalır, eksik saniyede ~3 800 yemle tamamlanır. Görüntü: kafada kara girdap, dönen mor/turuncu/mavi
+  ışık diski, mor ekran flaşı, sarsıntı, "KARA DELİK!" duyurusu (herkese), sonda şok dalgası.
+- **Testler**: 52 test (yeni: 5x'te gövdeden geçmeme, kurucunun hızı doğrudan ayarlaması ve 5x sınırı,
+  kara delik — bir kez, sonradan doğan yem çekilmez, aynaya aynı tick'lerde yansır).
+
 ### 0.5 Sunucusuz Odalar ve Yayın (2026-10-18, oyuncu isteği)
 
 - **Karar**: odalar için ayrı sunucu/veritabanı yok; **odayı kuranın tarayıcısı odanın geçici sunucusu**. `§0.3`'teki

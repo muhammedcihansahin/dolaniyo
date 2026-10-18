@@ -253,6 +253,7 @@ export class KillBanner {
   private readonly title: Text;
   private readonly name: Text;
   private t = Infinity;
+  private duration = KILL_BANNER_SECONDS;
   private clock = 0;
   private lastKillAt = -Infinity;
   private streak = 0;
@@ -307,6 +308,18 @@ export class KillBanner {
     this.title.style.dropShadow = { color: c, alpha: 0.55, blur: 16, distance: 0, angle: 0 };
     this.name.text = victim;
     this.name.style.fill = mix(PALETTE[colorIdx] ?? 0xffffff, 0xffffff, 0.3);
+    this.duration = KILL_BANNER_SECONDS;
+    this.t = 0;
+  }
+
+  /** Öldürme dışı büyük duyuru (ör. kara delik); öldürme serisini etkilemez. */
+  announce(title: string, sub: string, color: number, seconds: number): void {
+    this.title.text = title;
+    this.title.style.fill = color;
+    this.title.style.dropShadow = { color, alpha: 0.7, blur: 22, distance: 0, angle: 0 };
+    this.name.text = sub;
+    this.name.style.fill = 0xffffff;
+    this.duration = seconds;
     this.t = 0;
   }
 
@@ -321,7 +334,7 @@ export class KillBanner {
   update(dt: number, w: number, h: number): void {
     this.clock += dt;
     this.t += dt;
-    const left = KILL_BANNER_SECONDS - this.t;
+    const left = this.duration - this.t;
     this.root.visible = left > 0;
     if (left <= 0) return;
     const ui = clamp(Math.min(w, h) / 900, 0.6, 1.3);

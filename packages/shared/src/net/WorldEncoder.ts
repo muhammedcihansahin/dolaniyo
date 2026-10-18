@@ -14,7 +14,7 @@ const FLAG_BOT = 2;
  * kafa konumundan aynı `Body` algoritmasıyla gövdeyi kendisi uzatır (bkz. WorldMirror).
  *
  * TICK düzeni: tick, [yeni yılan (tam kayıt)], [yılan güncellemesi], [ölen yılan],
- * [eklenen yem], [taşınan yem], [sönme zamanı değişen yem], [silinen yem].
+ * [eklenen yem], [taşınan yem], [sönme zamanı değişen yem], [silinen yem], [kara delik].
  */
 export class WorldEncoder {
   /** Akışta en az bir kez tam kaydı gönderilmiş yılanlar. */
@@ -130,6 +130,15 @@ export class WorldEncoder {
       w.u32(removes[i]!);
       w.u32(removes[i + 1]!);
     }
+
+    const holesAt = w.reserveU32();
+    let holes = 0;
+    for (const e of events) {
+      if (e.type !== 'blackHole') continue;
+      w.u32(e.id);
+      holes++;
+    }
+    w.patchU32(holesAt, holes);
 
     food.clearChanges();
     return w.finish();

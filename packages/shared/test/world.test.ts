@@ -72,7 +72,8 @@ describe('World — hareket ve büyüme', () => {
     expect(changeSpeedScale(1, 'down')).toBe(0.75);
     expect(changeSpeedScale(1.75, 'reset')).toBe(1);
     expect(changeSpeedScale(1.1, 'up')).toBe(1.25);
-    expect(changeSpeedScale(2, 'up')).toBe(2);
+    expect(changeSpeedScale(2, 'up')).toBe(2.25);
+    expect(changeSpeedScale(5, 'up')).toBe(5);
     expect(changeSpeedScale(0.5, 'down')).toBe(0.5);
   });
 
@@ -84,7 +85,7 @@ describe('World — hareket ve büyüme', () => {
     const b = turnDiameter(fast, false);
     expect(Math.abs(b - a) / a).toBeLessThan(0.08);
     fast.setSpeedScale(10);
-    expect(fast.cfg.speedScale).toBe(2);
+    expect(fast.cfg.speedScale).toBe(5);
   });
 
   it('gövde uzunluğu skora göre hesaplanan boyu izler', () => {
@@ -303,6 +304,32 @@ describe('World — çarpışmalar', () => {
     expect(reasons).toEqual(['head', 'head']);
   });
 
+  it('5x hızda boost yapan kafa gövdenin içinden geçip gitmez', () => {
+    // Kafa tick başına ~120 u gider, gövde tüpü ~110 u genişliğinde: farklı başlangıç
+    // aralıklarıyla denenir (yalnızca varış noktasına bakılsaydı bazıları içinden geçerdi)
+    for (let off = 0; off < 120; off += 10) {
+      const w = emptyWorld({ speedScale: 5 });
+      const wall = w.addSnake({
+        name: 'd',
+        color: 0,
+        x: 0,
+        y: 900,
+        angle: Math.PI / 2,
+        score: 2000,
+      });
+      const a = w.addSnake({ name: 'a', color: 1, x: -2400 - off, y: 0, angle: 0, score: 1500 });
+      const events: SimEvent[] = [];
+      for (let i = 0; i < 60 && a.alive; i++) {
+        w.setInput(wall.id, Math.PI / 2, false);
+        w.setInput(a.id, 0, true);
+        w.step();
+        events.push(...w.drainEvents());
+      }
+      const d = deaths(events).find((e) => e.id === a.id);
+      expect(d).toMatchObject({ reason: 'body', killerId: wall.id });
+    }
+  });
+
   it('kafa-kafada 1. sıradaki yılan hayatta kalır', () => {
     const w = emptyWorld();
     const a = w.addSnake({ name: 'a', color: 0, x: -60, y: 0, angle: 0, score: 150 });
@@ -411,5 +438,51 @@ describe('World — ortam yemi sınırlı', () => {
         expect(w.food.expire[i]).toBe(-1);
       }
     }
+  });
+});
+
+describe('World — kara delik (1M)', () => {
+  it("1M'a ulaşan yılan o anki bütün yemi bir kez çekip yutar", () => {
+    const w = emptyWorld();
+    const s = w.addSnake({ name: 'a', color: 0, x: 0, y: 0, angle: 0, score: 999_000 });
+    expect(s.blackHoleDone).toBe(false);
+    // Kafanın önünde 1M'ı geçiren yem, haritanın her yerinde de yemler
+    w.food.add(s.radius * 0.5, 0, 2000, 0, FoodKind.Ambient);
+    let total = 0;
+    for (let i = 0; i < 300; i++) {
+      const th = i * 2.39996;
+      const r = 2800 * Math.sqrt((i + 0.5) / 300);
+      w.food.add(Math.cos(th) * r, Math.sin(th) * r, 10, 1, FoodKind.Ambient);
+      total += 10;
+    }
+    w.step(); // yemleri doğduktan sonraki tick'te yer, eşiği geçer
+    w.step();
+    const events: SimEvent[] = [...w.drainEvents()];
+    expect(events.filter((e) => e.type === 'blackHole')).toHaveLength(1);
+    const before = s.score;
+    const late = w.food.add(-2500, 0, 10, 1, FoodKind.Ambient); // sonradan doğan çekilmez
+    for (let i = 0; i < w.cfg.blackHoleTicks + 5; i++) {
+      w.setInput(s.id, 0, false);
+      w.step();
+      events.push(...w.drainEvents());
+    }
+    expect(s.alive).toBe(true);
+    expect(w.food.aliveCount).toBe(1);
+    expect(w.food.alive[late]).toBe(1);
+    expect(s.score).toBeGreaterThan(before);
+    expect(s.score).toBeCloseTo(999_000 + 2000 + total, 3);
+    // Bir kez: skor yeniden eşiği geçse de ikinci kara delik yok
+    s.score = 500_000;
+    w.step();
+    s.score = 1_200_000;
+    w.step();
+    expect(w.drainEvents().some((e) => e.type === 'blackHole')).toBe(false);
+  });
+
+  it('o skorla doğan yılan kara delik açmaz', () => {
+    const w = emptyWorld();
+    w.addSnake({ name: 'a', color: 0, x: 0, y: 0, angle: 0, score: 2_000_000 });
+    w.step();
+    expect(w.drainEvents().some((e) => e.type === 'blackHole')).toBe(false);
   });
 });

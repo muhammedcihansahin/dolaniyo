@@ -15,7 +15,7 @@ import { OfflineGame } from '../offline/OfflineGame';
 import { Renderer } from '../render/Renderer';
 import { t } from '../i18n';
 import { storage } from '../storage';
-import { Hud } from '../ui/Hud';
+import { Hud, type MinimapSnake } from '../ui/Hud';
 import { Fullscreen } from '../ui/Fullscreen';
 import { Menu } from '../ui/Menu';
 
@@ -112,6 +112,7 @@ export class GameApp {
       createRoom: (bots, speed) => void this.connectRoom({ t: 'create', bots, speed }),
       joinRoom: (raw) => this.joinRoom(raw),
       leaveRoom: () => this.exitRoom(null),
+      roomSpeed: (v) => this.net?.setSpeed(v),
     });
     this.offline = new OfflineGame(this.menu.botCount, this.menu.speedScale);
     this.offline.onPlayerDied = (d) => this.onPlayerDied(d);
@@ -363,13 +364,23 @@ export class GameApp {
     if (this.minimapTimer <= 0) {
       // Birincinin halkası nabız gibi atsın diye sık çizilir
       this.minimapTimer = 0.1;
-      const top = world.getLeaderboard(5);
-      const dot = (s: SnakeLike) => ({ x: s.x, y: s.y, size: 2 + Math.min(3, s.radius / 14) });
-      const meDot = { x: me.x, y: me.y, size: 3 };
-      const first = top[0];
-      const leader = !first ? null : first === me ? meDot : dot(first);
-      const others = top.filter((s) => s !== me && s !== first).map(dot);
-      this.hud.drawMinimap(world.cfg.arenaRadius, meDot, others, leader);
+      const R = world.cfg.arenaRadius;
+      const top = world.getLeaderboard(10);
+      const entries: MinimapSnake[] = top.map((s, i) => {
+        const rank = i + 1;
+        const own = s === me;
+        return { x: s.x, y: s.y, rank, me: own, path: own || rank <= 3 ? ropePath(s, R) : [] };
+      });
+      if (!top.includes(me)) {
+        entries.push({
+          x: me.x,
+          y: me.y,
+          rank: world.rankOf(me.id),
+          me: true,
+          path: ropePath(me, R),
+        });
+      }
+      this.hud.drawMinimap(R, entries);
     }
   }
 
@@ -382,4 +393,20 @@ export class GameApp {
       this.fpsTimer = 0;
     }
   }
+}
+
+const ROPE_POINT = { x: 0, y: 0 };
+
+/**
+ * Mini haritada ip gibi çizilecek gövde: kafadan kuyruğa örnekler (x, y çiftleri). Örnek aralığı
+ * haritada ~1.5 piksele denk gelir; en fazla 120 nokta.
+ */
+function ropePath(s: SnakeLike, arenaRadius: number): number[] {
+  const step = Math.max(arenaRadius / 150, s.length / 120);
+  const out: number[] = [];
+  for (let arc = step; arc < s.length + step; arc += step) {
+    s.body.pointAt(s.x, s.y, Math.min(arc, s.length), ROPE_POINT);
+    out.push(ROPE_POINT.x, ROPE_POINT.y);
+  }
+  return out;
 }
