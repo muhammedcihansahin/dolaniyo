@@ -10,6 +10,8 @@ import {
   type WorldView,
 } from '@yilan/shared';
 import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
+import { t as tr } from '../i18n';
+import { BlackHoleFx } from './BlackHoleFx';
 import { DeathFx, KillBanner } from './DeathFx';
 import { SnakeView, type ViewRect } from './SnakeView';
 import { SpritePool } from './SpritePool';
@@ -65,6 +67,7 @@ export class Renderer {
   private readonly deathCore: SpritePool;
   private readonly foodCore: SpritePool;
   private readonly deathFx: DeathFx;
+  private readonly hole: BlackHoleFx;
   private readonly killBanner = new KillBanner();
   private readonly vignette: Sprite;
   private vignetteT = VIGNETTE_SECONDS;
@@ -109,11 +112,13 @@ export class Renderer {
     this.deathCore = new SpritePool(deathLayer, this.textures.blob);
     this.foodCore = new SpritePool(foodLayer, this.textures.circle);
     this.deathFx = new DeathFx(this.textures);
+    this.hole = new BlackHoleFx(this.textures);
     this.worldLayer.addChild(
       outside,
       foodGlowLayer,
       deathLayer,
       foodLayer,
+      this.hole.layer,
       this.snakeLayer,
       this.deathFx.layer,
       border,
@@ -133,6 +138,7 @@ export class Renderer {
     this.fading.clear();
     this.eatFx = [];
     this.deathFx.clear();
+    this.hole.clear();
     this.trauma = 0;
     this.drawArena(world.cfg.arenaRadius);
   }
@@ -170,7 +176,13 @@ export class Renderer {
         if (e.reason !== 'left') this.onDeath(e, playerId);
         continue;
       }
+      if (e.type === 'blackHole') {
+        this.onBlackHole(e.id, e.tick, playerId);
+        continue;
+      }
       if (e.type !== 'foodEaten') continue;
+      // Kara deliğin yuttuğu yemler girdapla çizilir
+      if (this.hole.swallowing(e.eaterId)) continue;
       const eater = this.world.snakes.get(e.eaterId);
       this.eatFx.push({
         x: e.x,
@@ -217,6 +229,26 @@ export class Renderer {
       const near = 1 - Math.min(1, Math.sqrt(dx * dx + dy * dy) / Math.sqrt(w * w + h * h));
       this.addShake(0.16 * clamp(view.radius / 18, 0.6, 2.2) * near);
     }
+  }
+
+  /** 1M: kara delik açıldı. Herkes duyuruyu görür; yakındakiler sarsılır. */
+  private onBlackHole(id: number, tick: number, playerId: number): void {
+    const s = this.world.snakes.get(id);
+    if (!s) return;
+    this.hole.start(this.world, id, tick);
+    const own = playerId !== 0 && id === playerId;
+    this.killBanner.announce(
+      tr('fx.blackHole'),
+      own ? tr('fx.blackHoleYou') : tr('fx.blackHoleBy', { name: s.name }),
+      0xc58bff,
+      3.2,
+    );
+    this.flashVignette(0x9b4dff, own ? 0.9 : 0.55);
+    const w = this.app.screen.width / 2 / this.cam.zoom;
+    const h = this.app.screen.height / 2 / this.cam.zoom;
+    const near =
+      1 - Math.min(1, Math.hypot(s.x - this.cam.x, s.y - this.cam.y) / (3 * Math.hypot(w, h)));
+    this.addShake(own ? 1 : 0.2 + 0.6 * near);
   }
 
   private addShake(amount: number): void {
@@ -268,6 +300,7 @@ export class Renderer {
     const halfW = w / 2 / zoom + 40;
     const halfH = h / 2 / zoom + 40;
     this.renderFood(alpha, dt, cx - halfW, cy - halfH, cx + halfW, cy + halfH);
+    this.hole.update(this.world, alpha, dt);
     this.renderSnakes(alpha, dt, zoom, halfW, halfH, focus.own ? focus.snake : null, showNames);
     this.deathFx.render(dt);
     this.renderOverlay(dt, w, h);
@@ -283,7 +316,8 @@ export class Renderer {
     if (focus.own) {
       cam.x = hx;
       cam.y = hy;
-      targetZoom = clamp(Math.pow(14 / s.radius, 0.55), 0.35, 1) * base;
+      // Dev yılanlarda kamera biraz daha uzaklaşır (kalınlaşma 10k'dan sonra hızlı)
+      targetZoom = clamp(Math.pow(14 / s.radius, 0.55), 0.28, 1) * base;
     } else {
       const k = 1 - Math.exp(-dt * 3);
       cam.x += (hx - cam.x) * k;
@@ -315,8 +349,10 @@ export class Renderer {
     this.deathBlob.begin();
     this.deathCore.begin();
     this.foodCore.begin();
+    const hole = this.hole.active ? this.hole : null;
     for (let k = 0; k < n; k++) {
       const slot = this.foodScratch[k]!;
+      if (hole?.isPulled(slot, food.id[slot]!)) continue;
       // Mıknatısla çekilen yem tick'ler arasında da akıcı kaysın
       let x = food.x[slot]!;
       let y = food.y[slot]!;
@@ -348,6 +384,13 @@ export class Renderer {
         const r = food.radius[slot]! * (1 + 0.1 * Math.sin(t * 3 + id * 1.7)) * vis;
         this.drawPellet(x, y, r, food.color[slot]!, vis);
       }
+    }
+    if (hole) {
+      const rect = { minX, minY, maxX, maxY };
+      hole.drawFood(this.world, alpha, rect, (slot, x, y, r) => {
+        if (food.kind[slot] === FoodKind.Death) this.drawDeathOrb(x, y, r, food.color[slot]!, 1);
+        else this.drawPellet(x, y, r, food.color[slot]!, 1);
+      });
     }
     this.renderEatFx(alpha, dt);
     this.foodGlow.end();

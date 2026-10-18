@@ -40,6 +40,8 @@ export class Snake implements SnakeLike {
   length = 0;
   alive = true;
   spawnTick = 0;
+  /** Kara delik (1M) bu yılan için kullanıldı ya da yılan zaten o skorla doğdu. */
+  blackHoleDone = false;
   /** Boost sırasında kuyruktan düşürülmeyi bekleyen skor. */
   boostDropAcc = 0;
   readonly body: Body;

@@ -164,6 +164,11 @@ export class NetGame implements GameSession {
     this.send({ t: 'leave' });
   }
 
+  /** Oda hızını doğrudan ayarla (kurucunun menüdeki sürgüsü). */
+  setSpeed(scale: number): void {
+    this.send({ t: 'speed', set: scale });
+  }
+
   /** Kurucu yetkiyi denetler; sonuç `speed` ya da `speedDenied` mesajıyla gelir. */
   changeSpeed(change: SpeedChange): void {
     this.send({ t: 'speed', change });

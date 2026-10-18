@@ -1,15 +1,16 @@
 /**
  * Başsız simülasyon ölçümü: botlarla dolu bir dünyayı çalıştırır, tick süresini ve
  * bot davranış istatistiklerini (ölüm sebepleri, en yüksek skor) yazdırır.
- * Kullanım: npm run bench -- [saniye] [botSayısı] [arenaYarıçapı]
+ * Kullanım: npm run bench -- [saniye] [botSayısı] [arenaYarıçapı] [oyunHızı]
  */
 import { BotController, TICK_RATE, World, type DeathReason } from '@yilan/shared';
 
 const seconds = Number(process.argv[2] ?? 120);
 const bots = Number(process.argv[3] ?? 20);
-const arenaRadius = Number(process.argv[4] ?? 10000);
+const arenaRadius = Number(process.argv[4] ?? 20000);
+const speedScale = Number(process.argv[5] ?? 1);
 
-const world = new World({ arenaRadius }, 12345);
+const world = new World({ arenaRadius, speedScale }, 12345);
 const controller = new BotController(world, { botCount: bots, randomInitialScores: true });
 
 const deaths: Record<DeathReason, number> = { border: 0, body: 0, head: 0, left: 0 };
@@ -29,7 +30,7 @@ for (let t = 0; t < ticks; t++) {
 const total = performance.now() - t0;
 
 console.log(
-  `Simüle edilen süre: ${seconds} sn (${ticks} tick), bot: ${bots}, arena: ${arenaRadius}`,
+  `Simüle edilen süre: ${seconds} sn (${ticks} tick), bot: ${bots}, arena: ${arenaRadius}, hız: ${speedScale}x`,
 );
 console.log(`Ortalama tick: ${(total / ticks).toFixed(3)} ms, en kötü: ${worstTick.toFixed(2)} ms`);
 console.log(`Yem: ${world.food.aliveCount} (ortam hedefi ${world.ambientTarget})`);

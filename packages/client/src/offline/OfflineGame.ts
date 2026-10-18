@@ -9,7 +9,7 @@ import {
 import type { GameSession, PlayerDeath } from '../game/GameSession';
 
 /** Odalarla aynı arena boyutu: botlu tek kişilik oyun ile oda aynı hissi versin. */
-export const ARENA_RADIUS = 10000;
+export const ARENA_RADIUS = 20000;
 
 /** Sunucusuz oyun: ortak simülasyonu tarayıcıda botlarla çalıştırır. */
 export class OfflineGame implements GameSession {

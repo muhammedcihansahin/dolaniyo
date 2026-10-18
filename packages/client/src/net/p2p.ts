@@ -9,7 +9,7 @@ import {
   type RoomTicker,
   type ServerMessage,
 } from '@yilan/shared';
-import { Peer, type DataConnection } from 'peerjs';
+import { Peer, type DataConnection, type PeerOptions } from 'peerjs';
 import { NetError } from './errors';
 
 /**
@@ -19,8 +19,13 @@ import { NetError } from './errors';
  * Hiçbir yerde oda kaydı tutulmaz; kurucu ayrılınca oda biter.
  */
 const PEER_PREFIX = 'yilan-io-';
-const ARENA_RADIUS = 10000;
+const ARENA_RADIUS = 20000;
+/** Eşleştirme sunucusuna kaydolma süresi sınırı. */
 const CONNECT_TIMEOUT_MS = 15_000;
+/** Kurucunun tarayıcısına doğrudan/aktarıcı üzerinden bağlanma süresi sınırı. */
+const DIAL_TIMEOUT_MS = 25_000;
+/** Bağlandıktan sonra eşleştirme sunucusundan ayrılmadan önce geç gelen ağ adaylarını bekle. */
+const SIGNAL_LINGER_MS = 10_000;
 /** Kurucudan bu süre veri gelmezse (her tick gelmeli) bağlantı kopmuş sayılır. */
 const SILENCE_TIMEOUT_MS = 8000;
 /** Sayfa yenilenince eski kimlik eşleştirme sunucusunda kısa süre dolu kalabilir. */
@@ -35,6 +40,62 @@ export interface ClientLink {
   onmessage: ((data: string | ArrayBuffer) => void) | null;
   onclose: (() => void) | null;
   close(): void;
+}
+
+/**
+ * Bağlantı yolu bulma (ICE) sunucuları. STUN, iki tarayıcının doğrudan bağlanması için dış
+ * adreslerini öğrenmesini sağlar; çoğu ev ağında bu yeter. Mobil veri, okul/iş ağı gibi
+ * katı NAT'lerde doğrudan bağlantı kurulamaz, veri bir TURN aktarıcısı üzerinden gider:
+ * birkaç ücretsiz aktarıcı sırayla denenir (biri çalışmıyorsa diğeri). Kendi aktarıcınızı
+ * derlemede `VITE_ICE_SERVERS` (RTCIceServer[] JSON) ile ekleyebilirsiniz.
+ */
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  {
+    urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+    username: 'peerjs',
+    credential: 'peerjsp',
+  },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
+function iceServers(): RTCIceServer[] {
+  const extra = import.meta.env.VITE_ICE_SERVERS as string | undefined;
+  if (!extra) return ICE_SERVERS;
+  try {
+    const list = JSON.parse(extra) as RTCIceServer[];
+    return Array.isArray(list) ? [...list, ...ICE_SERVERS] : ICE_SERVERS;
+  } catch {
+    return ICE_SERVERS;
+  }
+}
+
+/**
+ * PeerJS seçenekleri. Eşleştirme sunucusu varsayılan olarak PeerJS'in ücretsiz bulut sunucusu;
+ * `VITE_PEER_SERVER=host:port/yol` ile kendi PeerJS sunucunuz kullanılabilir (yerel deneme).
+ */
+function peerOptions(): PeerOptions {
+  const opts: PeerOptions = { debug: 0, config: { iceServers: iceServers() } };
+  const server = import.meta.env.VITE_PEER_SERVER as string | undefined;
+  if (server) {
+    const m = /^(?:(wss?|https?):\/\/)?([^/:]+)(?::(\d+))?(\/.*)?$/.exec(server);
+    if (m) {
+      opts.secure = m[1] === 'https' || m[1] === 'wss';
+      opts.host = m[2]!;
+      opts.port = m[3] ? Number(m[3]) : opts.secure ? 443 : 80;
+      opts.path = m[4] ?? '/';
+    }
+  }
+  return opts;
 }
 
 function peerId(code: string): string {
@@ -170,7 +231,7 @@ async function localAddresses(): Promise<string[]> {
 /** Eşleştirme sunucusuna `id` kimliğiyle kaydolur. Kimlik doluysa `taken` döner. */
 function register(id: string): Promise<Peer | 'taken'> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer(id, { debug: 0 });
+    const peer = new Peer(id, peerOptions());
     const timer = window.setTimeout(() => {
       peer.destroy();
       reject(new NetError('unreachable'));
@@ -243,8 +304,10 @@ export async function hostRoom(opts: {
 /** Koddaki odaya (kurucunun tarayıcısına) bağlanır. */
 export function dialRoom(code: string): Promise<ClientLink> {
   return new Promise((resolve, reject) => {
-    const peer = new Peer({ debug: 0 });
+    const peer = new Peer(peerOptions());
     let settled = false;
+    /** Eşleştirme sunucusuna ulaşıldı: bundan sonraki başarısızlık iki tarayıcı arasındadır. */
+    let signalled = false;
     const fail = (err: NetError) => {
       if (settled) return;
       settled = true;
@@ -252,13 +315,17 @@ export function dialRoom(code: string): Promise<ClientLink> {
       peer.destroy();
       reject(err);
     };
-    const timer = window.setTimeout(() => fail(new NetError('unreachable')), CONNECT_TIMEOUT_MS);
+    const timer = window.setTimeout(
+      () => fail(new NetError(signalled ? 'p2pFailed' : 'unreachable')),
+      DIAL_TIMEOUT_MS,
+    );
     peer.on('error', (err) => {
       if (err.type === 'peer-unavailable') fail(new NetError('notFound'));
       else if (err.type === 'browser-incompatible') fail(new NetError('noWebrtc'));
-      else fail(new NetError('unreachable'));
+      else fail(new NetError(signalled ? 'p2pFailed' : 'unreachable'));
     });
     peer.once('open', () => {
+      signalled = true;
       const conn = peer.connect(peerId(code), {
         reliable: true,
         serialization: 'raw',
@@ -268,11 +335,17 @@ export function dialRoom(code: string): Promise<ClientLink> {
         if (settled) return;
         settled = true;
         window.clearTimeout(timer);
-        // Oyun verisi artık doğrudan akıyor; eşleştirme sunucusuna gerek yok
-        peer.disconnect();
+        // Oyun verisi artık doğrudan akıyor; geç gelen ağ adaylarından sonra eşleştirme
+        // sunucusundan ayrıl (kurucu odayı orada tutmaya devam eder)
+        window.setTimeout(() => !peer.destroyed && peer.disconnect(), SIGNAL_LINGER_MS);
         resolve(peerLink(peer, conn));
       });
-      conn.once('error', () => fail(new NetError('unreachable')));
+      // Ağlar (NAT/güvenlik duvarı) bağlantıya izin vermedi: süre dolmasını bekleme
+      conn.on('iceStateChanged', (state) => {
+        if (state === 'failed') fail(new NetError('p2pFailed'));
+      });
+      conn.once('close', () => fail(new NetError('p2pFailed')));
+      conn.once('error', () => fail(new NetError('p2pFailed')));
     });
   });
 }

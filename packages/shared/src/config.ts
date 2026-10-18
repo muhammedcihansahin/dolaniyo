@@ -111,10 +111,21 @@ export interface SimConfig {
    */
   looseFoodMax: number;
 
+  /**
+   * Kara delik: bir yılan skoru ilk kez `blackHoleScore`a ulaşınca (yılan başına bir kez) o an
+   * haritadaki bütün yemi kendine çeker ve yutar. Yakındaki yem önce, en uzaktaki
+   * `blackHoleTicks` sonunda varır (bkz. `blackHoleArrivalTick`).
+   */
+  blackHoleScore: number;
+  blackHoleTicks: number;
+
   /** Mıknatıs yarıçapı = r * magnetK + magnetBase */
   magnetK: number;
   magnetBase: number;
   magnetSpeed: number;
+  /** Skor `magnetBoostScore`a ulaşınca mıknatıs yarıçapı (yem çekme dairesi) `magnetBoostMul` katı. */
+  magnetBoostScore: number;
+  magnetBoostMul: number;
 
   /** Kafa çarpışma dairesi = r * headHitScale */
   headHitScale: number;
@@ -135,13 +146,14 @@ export const DEFAULT_SIM_CONFIG: Readonly<SimConfig> = {
   arenaRadius: 12000,
   segmentSpacing: 6,
 
-  growthTierScores: [50_000, 200_000, 1_000_000],
+  // 10 bine kadar ince ve uzun; sonra her kademede daha hızlı kalınlaşır
+  growthTierScores: [10_000, 50_000, 100_000, 250_000, 500_000, 1_000_000],
   lenBase: 120,
   lenK: 14,
-  lenTierExp: [0.65, 0.68, 0.72, 0.76],
+  lenTierExp: [0.65, 0.65, 0.67, 0.68, 0.7, 0.72, 0.76],
   rBase: 12,
   rK: 3,
-  rTierMul: [0.7, 4, 8, 12],
+  rTierMul: [0.7, 3.5, 6, 8, 10, 12, 16],
 
   baseSpeed: 276,
   boostSpeed: 736,
@@ -183,9 +195,14 @@ export const DEFAULT_SIM_CONFIG: Readonly<SimConfig> = {
   foodCapFadeMaxTicks: 45 * TICK_RATE,
   looseFoodMax: 30_000,
 
+  blackHoleScore: 1_000_000,
+  blackHoleTicks: 3 * TICK_RATE,
+
   magnetK: 3,
   magnetBase: 40,
   magnetSpeed: 900,
+  magnetBoostScore: 500_000,
+  magnetBoostMul: 2,
 
   headHitScale: 0.9,
   headZoneK: 1,
@@ -237,7 +254,7 @@ export function radiusForScore(cfg: SimConfig, score: number): number {
 
 /** Ayarlardaki oyun hızı sürgüsünün sınırları. */
 export const SPEED_SCALE_MIN = 0.5;
-export const SPEED_SCALE_MAX = 2;
+export const SPEED_SCALE_MAX = 5;
 
 export function clampSpeedScale(v: number): number {
   return Number.isFinite(v) ? Math.min(SPEED_SCALE_MAX, Math.max(SPEED_SCALE_MIN, v)) : 1;
@@ -279,8 +296,9 @@ export function turnRateFor(cfg: SimConfig, radius: number, boosting: boolean): 
   return speedFor(cfg, radius, boosting) / turnRadiusFor(cfg, radius);
 }
 
-export function magnetRadius(cfg: SimConfig, radius: number): number {
-  return radius * cfg.magnetK + cfg.magnetBase;
+export function magnetRadius(cfg: SimConfig, radius: number, score = 0): number {
+  const r = radius * cfg.magnetK + cfg.magnetBase;
+  return score >= cfg.magnetBoostScore ? r * cfg.magnetBoostMul : r;
 }
 
 export function foodRadius(value: number): number {
@@ -290,4 +308,16 @@ export function foodRadius(value: number): number {
 /** Gövde, çizim/çarpışma için gereken uzunluğun biraz fazlasını tutar (interpolasyon payı). */
 export function bodyTrimMargin(cfg: SimConfig): number {
   return cfg.boostSpeed * cfg.speedScale * DT + cfg.segmentSpacing * 2;
+}
+
+/** Kara delik en yakın yemi bu kadar tick'te yutar. */
+const BLACK_HOLE_MIN_TICKS = 6;
+
+/**
+ * Kara deliğin `t0` tick'inde başladığı anda kafaya `d` uzaklıktaki yemin yutulduğu tick.
+ * Sunucu yemi bu tick'te siler; istemci aynı formülle yemin kafaya akışını çizer.
+ */
+export function blackHoleArrivalTick(cfg: SimConfig, t0: number, d: number): number {
+  const f = Math.sqrt(Math.min(1, d / (cfg.arenaRadius * 2)));
+  return t0 + BLACK_HOLE_MIN_TICKS + Math.floor((cfg.blackHoleTicks - BLACK_HOLE_MIN_TICKS) * f);
 }

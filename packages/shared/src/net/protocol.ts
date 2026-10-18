@@ -11,7 +11,7 @@ import { BinaryReader, BinaryWriter } from './binary';
  *   durum) ve her tick `TICK` (yalnızca değişiklikler). Ayrıntı: WorldEncoder / WorldMirror.
  * - Büyük ikili mesajlar (INIT) veri kanalı sınırına takılmasın diye `CHUNK` parçalarıyla gider.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** İkili mesajların ilk baytı. */
 export const BinMsg = {
@@ -41,7 +41,9 @@ export type ClientMessage =
    * Oyun hızını değiştir (H/Y/R tuşları). Yalnızca odayı kuran ya da odada kendisinden başka
    * gerçek oyuncu yılanı olmayan kişi değiştirebilir; aksi halde `speedDenied` döner.
    */
-  | { t: 'speed'; change: SpeedChange };
+  | { t: 'speed'; change: SpeedChange }
+  /** Oyun hızını doğrudan ayarla (odayı kuranın menüdeki sürgüsü); yetki kuralı aynı. */
+  | { t: 'speed'; set: number };
 
 export type RoomErrorCode = 'notFound' | 'full' | 'badRequest' | 'version';
 

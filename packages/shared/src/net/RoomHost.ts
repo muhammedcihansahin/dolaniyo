@@ -1,5 +1,5 @@
 import { SNAKE_COLOR_COUNT } from '../colors';
-import { TICK_RATE, changeSpeedScale, type SpeedChange } from '../config';
+import { TICK_RATE, changeSpeedScale, clampSpeedScale, type SpeedChange } from '../config';
 import { guestName, sanitizeNick } from '../nick';
 import { BotController } from '../sim/bots/BotController';
 import { World } from '../sim/World';
@@ -160,7 +160,7 @@ export class RoomHost {
         this.updateRunning();
         return;
       case 'speed':
-        this.changeSpeed(m, msg.change);
+        this.changeSpeed(m, msg);
         return;
     }
   }
@@ -242,14 +242,17 @@ export class RoomHost {
   }
 
   /** Kurucu ya da odada kendisinden başka gerçek oyuncu yılanı yoksa hızı değiştirir. */
-  private changeSpeed(m: RoomMember, change: SpeedChange): void {
+  private changeSpeed(m: RoomMember, req: { change: SpeedChange } | { set: number }): void {
     let othersPlaying = false;
     for (const o of this.members) if (o !== m && o.snakeId) othersPlaying = true;
     if (!m.owner && othersPlaying) {
       send(m.link, { t: 'speedDenied' });
       return;
     }
-    this.world.setSpeedScale(changeSpeedScale(this.world.cfg.speedScale, change));
+    const current = this.world.cfg.speedScale;
+    this.world.setSpeedScale(
+      'set' in req ? clampSpeedScale(req.set) : changeSpeedScale(current, req.change),
+    );
     const speed = this.world.cfg.speedScale;
     for (const o of this.members) send(o.link, { t: 'speed', speed });
   }
@@ -296,6 +299,9 @@ function parseMessage(raw: string): ClientMessage | null {
       case 'away':
         return typeof msg.away === 'boolean' ? { t: 'away', away: msg.away } : null;
       case 'speed':
+        if (typeof msg.set === 'number' && Number.isFinite(msg.set)) {
+          return { t: 'speed', set: msg.set };
+        }
         return msg.change === 'up' || msg.change === 'down' || msg.change === 'reset'
           ? { t: 'speed', change: msg.change }
           : null;

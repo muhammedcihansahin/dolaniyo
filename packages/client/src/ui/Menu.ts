@@ -24,6 +24,8 @@ const DESKTOP_TIPS: MessageKey[] = [
   'menu.tip.escape',
   'menu.tip.speedKeys',
   'menu.tip.fullscreen',
+  'menu.tip.blackHole',
+  'menu.tip.minimap',
 ];
 const TOUCH_TIPS: MessageKey[] = [
   'menu.tip.touchSteer',
@@ -33,6 +35,7 @@ const TOUCH_TIPS: MessageKey[] = [
   'menu.tip.cost',
   'menu.tip.touchExit',
   'menu.tip.fullscreen',
+  'menu.tip.blackHole',
 ];
 const TIP_INTERVAL_MS = 5000;
 export const DEFAULT_BOTS = 20;
@@ -47,6 +50,8 @@ export interface MenuHandlers {
   /** Kullanıcının yazdığı ham kod; doğrulama çağıranda. */
   joinRoom(rawCode: string): void;
   leaveRoom(): void;
+  /** Odayı kuranın oda hızı sürgüsü (çarpan, 0.5–5). */
+  roomSpeed(scale: number): void;
 }
 
 /** Ana menü: logo, takma ad + Oyna, bot sayısı, oda kur/katıl veya odadaysa oda bilgisi. */
@@ -76,6 +81,9 @@ export class Menu {
   private readonly roomLink = document.getElementById('room-link') as HTMLInputElement;
   private readonly copyBtn = document.getElementById('room-copy') as HTMLButtonElement;
   private readonly leaveBtn = document.getElementById('room-leave') as HTMLButtonElement;
+  private readonly roomSpeedRow = document.getElementById('room-speed-row')!;
+  private readonly roomSpeed = document.getElementById('room-speed') as HTMLInputElement;
+  private readonly roomSpeedValue = document.getElementById('room-speed-value')!;
 
   private tips = DESKTOP_TIPS;
   private tipIndex = 0;
@@ -116,6 +124,13 @@ export class Menu {
       handlers.speedChanged(this.speedScale);
     });
 
+    this.roomSpeed.min = this.speed.min;
+    this.roomSpeed.max = this.speed.max;
+    this.roomSpeed.addEventListener('input', () => {
+      this.roomSpeedValue.textContent = speedLabel(Number(this.roomSpeed.value) / 100);
+      handlers.roomSpeed(clampSpeedScale(Number(this.roomSpeed.value) / 100));
+    });
+
     this.createBtn.addEventListener('click', () =>
       handlers.createRoom(this.botCount, this.speedScale),
     );
@@ -133,6 +148,7 @@ export class Menu {
       document.getElementById('settings-title')!.textContent = t('menu.settings');
       document.getElementById('bots-label')!.textContent = t('menu.bots');
       document.getElementById('speed-label')!.textContent = t('menu.speed');
+      document.getElementById('room-speed-label')!.textContent = t('menu.roomSpeed');
       this.renderSpeed();
       document.getElementById('friends-title')!.textContent = t('menu.friends');
       document.getElementById('room-label')!.textContent = t('menu.room');
@@ -224,16 +240,23 @@ export class Menu {
     this.roomMeta.textContent = t('menu.roomMeta', {
       people: room.people,
       bots: room.bots,
-      speed: Math.round(room.speed * 100),
+      speed: Math.round(room.speed * 100) / 100,
     });
     this.roomLink.value = roomLink(room);
+    // Oda hızını menüden yalnızca kuran ayarlar (oyunda H/Y/R tuşları da var)
+    this.roomSpeedRow.hidden = !room.hosting;
+    // Sürüklerken gelen yanıt sürgüyü geri oynatmasın
+    if (document.activeElement !== this.roomSpeed) {
+      this.roomSpeed.value = String(Math.round(room.speed * 100));
+    }
+    this.roomSpeedValue.textContent = speedLabel(room.speed);
     document.getElementById('room-hint')!.textContent = t(
       room.hosting ? 'menu.roomHintHost' : 'menu.roomHint',
     );
   }
 
   private renderSpeed(): void {
-    this.speedValue.textContent = t('menu.percent', { value: this.speed.value });
+    this.speedValue.textContent = speedLabel(this.speedScale);
   }
 
   private renderStatus(): void {
@@ -274,17 +297,39 @@ export class Menu {
   }
 }
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+/** Hız çarpanı yazısı: 1.5 → "1.5x", 2 → "2x". */
+function speedLabel(scale: number): string {
+  return t('menu.speedValue', { value: String(Math.round(scale * 100) / 100) });
+}
 
 /**
- * Arkadaşlara gönderilecek bağlantı. Oyun bu bilgisayarda localhost'tan açıldıysa,
- * arkadaşların ulaşabilmesi için sunucunun yerel ağ adresi kullanılır.
+ * Oyunun herkese açık adresi (GitHub Pages; main'e her push'ta güncellenir). Derlemede
+ * `VITE_PUBLIC_URL` ile değiştirilebilir.
+ */
+const PUBLIC_URL =
+  (import.meta.env.VITE_PUBLIC_URL as string | undefined) ||
+  'https://muhammedcihansahin.github.io/dolaniyo/';
+
+/** localhost ya da yerel ağ adresi (192.168.x.x, 10.x.x.x, 172.16–31.x.x): dışarıdan açılmaz. */
+function isPrivateHost(host: string): boolean {
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
+  if (host.endsWith('.local')) return true;
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
+
+/**
+ * Arkadaşlara gönderilecek bağlantı. Odalar iki tarayıcı arasında doğrudan çalıştığı için
+ * arkadaşın oyunu hangi adresten açtığı fark etmez. Oyun bu bilgisayarda yerelden
+ * (Oyna.exe / npm run dev) açıldıysa yerel adres başka evden açılamaz: herkese açık adres verilir.
  */
 export function roomLink(room: RoomInfo): string {
-  const url = new URL(location.href);
+  const url = new URL(isPrivateHost(location.hostname) ? PUBLIC_URL : location.href);
   url.search = '';
   url.hash = '';
   url.searchParams.set('oda', room.code);
-  if (LOCAL_HOSTS.has(url.hostname) && room.lan[0]) url.hostname = room.lan[0];
   return url.toString();
 }

@@ -165,6 +165,24 @@ describe('WorldEncoder → WorldMirror', () => {
     expectInSync(world, mirror);
   });
 
+  it("kara delik aynaya da gider: aynı yemler aynı tick'lerde yutulur", () => {
+    const world = new World({ arenaRadius: 3000, foodDensity: 1 / 20000, blackHoleScore: 5000 }, 5);
+    const enc = new WorldEncoder(world);
+    const mirror = new WorldMirror(world.cfg);
+    mirror.apply(enc.encodeInit());
+    const a = world.addSnake({ name: 'a', color: 0, x: 0, y: 0, angle: 0, score: 4000 });
+    let holeAt = -1;
+    for (let i = 0; i < 4 * 30; i++) {
+      if (i === 5) a.score = 6000;
+      world.step();
+      const events = mirror.apply(enc.encodeTick(world.drainEvents()));
+      const hole = events.find((e) => e.type === 'blackHole');
+      if (hole) holeAt = hole.tick;
+      expectInSync(world, mirror);
+    }
+    expect(holeAt).toBe(6);
+  });
+
   it('tick arasında doğan ve ayrılan oyuncular da aynaya yansır', () => {
     const world = new World({ arenaRadius: 3000, foodDensity: 1 / 100000 }, 3);
     const enc = new WorldEncoder(world);
@@ -307,5 +325,13 @@ describe('tarayıcıda çalışan oda (RoomHost)', () => {
     host.receive(ma, JSON.stringify({ t: 'speed', change: 'up' }));
     expect(b.text.at(-1)).toMatchObject({ t: 'speed' });
     expect(host.world.cfg.speedScale).toBeGreaterThan(1);
+    // Kurucunun menüdeki sürgüsü: doğrudan değer, 5x'e kadar
+    host.receive(ma, JSON.stringify({ t: 'speed', set: 4.5 }));
+    expect(b.text.at(-1)).toEqual({ t: 'speed', speed: 4.5 });
+    host.receive(ma, JSON.stringify({ t: 'speed', set: 50 }));
+    expect(host.world.cfg.speedScale).toBe(5);
+    host.receive(mb, JSON.stringify({ t: 'speed', set: 1 }));
+    expect(b.text.at(-1)).toEqual({ t: 'speedDenied' });
+    expect(host.world.cfg.speedScale).toBe(5);
   });
 });
