@@ -1,35 +1,60 @@
 import { SNAKE_COLOR_COUNT } from '../../colors';
 import { TICK_RATE } from '../../config';
+import { clamp } from '../../math';
 import type { World } from '../World';
 import { BotBrain, BotStyle } from './BotBrain';
 import { BOT_NAMES } from './names';
 
+/** Bir odada/oyunda en fazla bu kadar bot olabilir. */
+export const MAX_BOTS = 32;
+
 export interface BotControllerOptions {
-  /** Odadaki toplam yılan hedefi (gerçek oyuncu + bot). */
-  targetPopulation: number;
+  /** Dünyada tutulacak bot sayısı (gerçek oyuncular hariç), 0..MAX_BOTS. */
+  botCount: number;
   /** İlk doldurmada botlara rastgele başlangıç skoru verilsin mi (oda canlı görünsün). */
   randomInitialScores?: boolean;
   /** Ölen botun yeniden doğma gecikmesi, tick [min, max). */
   respawnDelay?: [number, number];
 }
 
-/** Oda nüfusunu botlarla hedefte tutar ve bot zekâlarını çalıştırır. */
+export function clampBotCount(n: number): number {
+  return Number.isFinite(n) ? clamp(Math.round(n), 0, MAX_BOTS) : 0;
+}
+
+/** Bot sayısını hedefte tutar (ölenlerin yerine gecikmeyle yenisi doğar) ve bot zekâlarını çalıştırır. */
 export class BotController {
   private readonly brains = new Map<number, BotBrain>();
+  /** Bekleyen yeniden doğmaların tick'leri. */
   private readonly pending: number[] = [];
   private readonly respawnDelay: [number, number];
+  private target: number;
 
   constructor(
     private readonly world: World,
-    private readonly opts: BotControllerOptions,
+    opts: BotControllerOptions,
   ) {
     this.respawnDelay = opts.respawnDelay ?? [2 * TICK_RATE, 6 * TICK_RATE];
-    const need = opts.targetPopulation - world.snakes.size;
-    for (let i = 0; i < need; i++) this.spawnBot(opts.randomInitialScores ?? false);
+    this.target = clampBotCount(opts.botCount);
+    for (let i = 0; i < this.target; i++) this.spawnBot(opts.randomInitialScores ?? false);
   }
 
   get botCount(): number {
     return this.brains.size;
+  }
+
+  get targetCount(): number {
+    return this.target;
+  }
+
+  /** Hedefi değiştirir: eksikler hemen doğar, fazla botlar yem bırakmadan kaldırılır. */
+  setBotCount(n: number): void {
+    this.target = clampBotCount(n);
+    this.pending.length = 0;
+    for (const id of [...this.brains.keys()].slice(this.target)) {
+      this.brains.delete(id);
+      this.world.removeSnake(id, false);
+    }
+    while (this.brains.size < this.target) this.spawnBot(true);
   }
 
   /** Her `world.step()`ten önce çağrılır. */
@@ -47,10 +72,10 @@ export class BotController {
     for (let i = this.pending.length - 1; i >= 0; i--) {
       if (this.pending[i]! > w.tick) continue;
       this.pending.splice(i, 1);
-      if (w.snakes.size < this.opts.targetPopulation) this.spawnBot(false);
+      if (this.brains.size < this.target) this.spawnBot(false);
     }
 
-    const deficit = this.opts.targetPopulation - w.snakes.size - this.pending.length;
+    const deficit = this.target - this.brains.size - this.pending.length;
     for (let i = 0; i < deficit; i++) {
       this.pending.push(w.tick + w.rng.int(this.respawnDelay[0], this.respawnDelay[1]));
     }

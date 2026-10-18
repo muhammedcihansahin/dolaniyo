@@ -39,6 +39,24 @@ export class FoodStore {
   py = new Float32Array(0);
   id = new Uint32Array(0);
 
+  /**
+   * Sunucu: istemcilere gönderilecek değişikliklerin kaydı. Açıkken aşağıdaki dizilere yazılır,
+   * okuyan (oda yayını) `clearChanges()` ile boşaltır.
+   */
+  trackChanges = false;
+  /** Eklenenler: [id, x, y, yarıçap, renk, tür, söneceği tick] × n */
+  readonly addLog: number[] = [];
+  /** Silinenler: [id, yiyen yılan id (0 = süresi doldu)] × n */
+  readonly removeLog: number[] = [];
+  /** Bu tick taşınan slotlar (tick başına ilk taşınmada bir kez). */
+  readonly moveLog: number[] = [];
+  /** Söneceği tick'i sonradan değişenler: [id, yeni tick (-1 = sonsuz)] × n */
+  readonly expireLog: number[] = [];
+  /** Ortam dışı (boost/ölüm) canlı yem sayısı. */
+  get looseCount(): number {
+    return this.aliveCount - this.ambientCount;
+  }
+
   private cellOf = new Int32Array(0);
   private idxInCell = new Int32Array(0);
   private free: number[] = [];
@@ -67,6 +85,8 @@ export class FoodStore {
     kind: FoodKind,
     expireTick = -1,
     radius = foodRadius(value),
+    /** Verilmezse yeni id üretilir (istemci aynası sunucunun id'sini verir). */
+    id = this.nextId++,
   ): number {
     let slot = this.free.pop();
     if (slot === undefined) {
@@ -84,15 +104,28 @@ export class FoodStore {
     this.expire[slot] = expireTick;
     this.born[slot] = this.tick;
     this.movedAt[slot] = -1;
-    this.id[slot] = this.nextId++;
+    this.id[slot] = id;
     this.aliveCount++;
     if (kind === FoodKind.Ambient) this.ambientCount++;
     this.insertCell(slot, this.cellIndex(x, y));
+    if (this.trackChanges) {
+      this.addLog.push(
+        id,
+        this.x[slot]!,
+        this.y[slot]!,
+        this.radius[slot]!,
+        color,
+        kind,
+        expireTick,
+      );
+    }
     return slot;
   }
 
-  remove(slot: number): void {
+  /** `eaterId`: yiyen yılan (0 = süresi doldu); yalnızca değişiklik kaydı için. */
+  remove(slot: number, eaterId = 0): void {
     if (!this.alive[slot]) return;
+    if (this.trackChanges) this.removeLog.push(this.id[slot]!, eaterId);
     this.alive[slot] = 0;
     this.aliveCount--;
     if (this.kind[slot] === FoodKind.Ambient) this.ambientCount--;
@@ -105,6 +138,7 @@ export class FoodStore {
       this.movedAt[slot] = this.tick;
       this.px[slot] = this.x[slot]!;
       this.py[slot] = this.y[slot]!;
+      if (this.trackChanges) this.moveLog.push(slot);
     }
     this.x[slot] = x;
     this.y[slot] = y;
@@ -113,6 +147,20 @@ export class FoodStore {
       this.removeCell(slot);
       this.insertCell(slot, c);
     }
+  }
+
+  /** Yemin söneceği tick'i değiştirir (-1 = hiç sönmez); değişiklik kaydına yazılır. */
+  setExpire(slot: number, expireTick: number): void {
+    if (!this.alive[slot] || this.expire[slot] === expireTick) return;
+    this.expire[slot] = expireTick;
+    if (this.trackChanges) this.expireLog.push(this.id[slot]!, expireTick);
+  }
+
+  clearChanges(): void {
+    this.addLog.length = 0;
+    this.removeLog.length = 0;
+    this.moveLog.length = 0;
+    this.expireLog.length = 0;
   }
 
   /** Yemin bu tick başındaki konumu (bu tick taşındıysa eski yeri). */

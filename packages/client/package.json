@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@yilan/shared": "0.1.0",
+    "peerjs": "1.5.5",
     "pixi.js": "8.22.0"
   },
   "devDependencies": {

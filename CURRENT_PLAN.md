@@ -1,7 +1,7 @@
 # CURRENT PLAN — Çok Oyunculu Yılan (.io) Oyunu
 
 > Bu dosya projenin **yaşayan plan belgesidir**. Her faz bittikçe ilgili kutucuklar `[x]` yapılır, "Mevcut Durum" bölümü güncellenir.
-> Son güncelleme: 2026-10-17
+> Son güncelleme: 2026-10-18
 
 ---
 
@@ -13,15 +13,15 @@
 | 1 | Çekirdek simülasyon + tek oyunculu (botlarla) oynanabilir sürüm | ✅ Bitti |
 | 2 | Görsel kimlik (arka plan, yılan, yem, sınır, kamera) | ⬜ |
 | 3 | Menü, modallar, HUD | ⬜ |
-| 4 | Yetkili (authoritative) çok oyunculu sunucu | ⬜ |
+| 4 | Yetkili (authoritative) çok oyunculu sunucu | 🟡 Arkadaş odaları kurucunun tarayıcısında çalışıyor (§0.5); açık odalar/AOI yok |
 | 5 | Netcode cilası (interpolasyon, tahmin, bant genişliği) | ⬜ |
-| 6 | Odalar (@oda), kalıcı skor tablosu (Günlük/Aylık/Tüm Zamanlar) | ⬜ |
+| 6 | Odalar (@oda), kalıcı skor tablosu (Günlük/Aylık/Tüm Zamanlar) | 🟡 Kodlu özel odalar var (§0.3); skor tablosu yok |
 | 7 | Mobil dokunmatik kontroller + gamepad | ⬜ |
 | 8 | Performans, test, cila | ⬜ |
 | 9 | Yerel / LAN çalıştırma + Docker hazırlığı | ⬜ |
 | ~~10~~ | ~~Portal sarmalayıcı sayfa~~ | ❌ Kapsam dışı (karar: sadece oyun) |
 
-Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun şu an `npm run dev:client` ile tarayıcıda botlara karşı oynanabiliyor; çalıştırma talimatları [README.md](README.md)'de.
+Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun tarayıcıda botlara karşı veya aynı ağdaki arkadaşlarla bir odada oynanabiliyor (`Oyna.exe` başlatıcısı ya da `npm run dev`); çalıştırma talimatları [README.md](README.md)'de.
 
 ### 0.1 Alınan Kararlar (2026-10-17)
 
@@ -35,6 +35,8 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun şu an `npm run dev:client` il
 | Arayüz dili | **Türkçe + İngilizce** | Tarayıcı diline göre otomatik seçim, ayarlardan değiştirilebilir (§10.6). |
 
 ### 0.2 Uygulama Notları ve Plandan Sapmalar (Faz 0–1, 2026-10-17)
+
+> Not: Aşağıdaki bazı değerler §0.3'te oyuncu isteğiyle yeniden değişti (yem yoğunluğu, boost harcaması, bot sayısı).
 
 - **Node.js**: Bilgisayarda kurulu değildi; resmî taşınabilir Node.js 24.22.0 LTS `C:\Users\mciha\.tools\node` klasörüne açıldı (SHA-256 doğrulandı). Terminalde kullanmak için README'deki `$env:Path` satırı gerekir.
 - **Sürümler**: TypeScript 6.0.3 (TS 7'nin yeni yerel derleyicisi yerine, ekosistem uyumu için), Vite 8.3.2, PixiJS 8.22.0, Vitest 5.0.3, tsx 4.23.15.
@@ -56,6 +58,118 @@ Sıradaki adım: **Faz 2 (görsel kimlik)**. Oyun şu an `npm run dev:client` il
   - Yılan boncukları baştan kuyruğa akan bir dalgayla büyüyüp küçülüyor (±%28, hızlanırken dalga iki kat hızlı).
 - **Sunucu (Faz 0 düzeyi)**: `/health` + derlenmiş istemciyi sunma + LAN adreslerini yazdırma; dizin dışına çıkan istekler reddediliyor. WebSocket Faz 4'te.
 
+### 0.3 Oyuncu İstekleri: Oynanış Ayarları, Bot Sayısı, Arkadaş Odaları (2026-10-17)
+
+- **Oynanış ayarları** (oyuncu isteği):
+  - Yem 3 kat: `foodDensity` 1/30000 → **1/10000** (R=5000'de ~2600 → ~7850 ortam yemi; `ambientRefillPerTick` 64 → 128).
+  - Yem 3 kat büyütür: yeni `ambientGrowth = 3`; ortam yemi skora taban değerinin (1–3) 3 katını katar, boyutu taban değerden hesaplanır (görünüm aynı). Yalnızca ortam yemine uygulanır; ölüm/boost yemi aynı kaldı. Botların "değerli yem" eşiği buna göre ayarlandı.
+  - Hızlanma harcaması yarıya: `boostDrainBase` 4 → **2**, `boostDrainK` 0.008 → **0.004**.
+  - Sonuç: skor ekonomisi ~9 kat hızlı; 20 botlu odada botlar 6 dakikada ~38 000 skora çıktı (`simbench` 24 bot / 60 sn: en yüksek ~5 000, tick ort. 0.2 ms).
+- **Ölüm yemi tüm gövdeden**: başsız ölçüm, baş tarafındaki ölüm yemlerinin %25'inin ilk 0.5 sn'de (%94'ü öldüren yılanın mıknatısıyla) süpürüldüğünü gösterdi; gövdenin geri kalanında %2.7. Yeni `deathFoodSettleTicks` (0.6 sn): ölüm yemi bu süre çekilmez ve yenmez. Yeniden ölçüm: ilk 0.5 sn'de yenen oranı baş tarafında %0.
+- **Yılan görünümü**: kuyruk incelmesi kaldırıldı (son daire kuyruğu yuvarlak bitirir); baş gövdeden 1.18 kat geniş çizilir ve 1.6r geride gövde kalınlığına iner (yalnızca görünüm; çarpışma aynı).
+- **Bot sayısı**: `BotController` artık toplam nüfus yerine **bot sayısı** tutuyor (`botCount`, 0–32 = `MAX_BOTS`, oyuncular sayılmaz), `setBotCount()` ile canlı değişir. Menüde sürgü (varsayılan 20, localStorage'da); tek kişilik oyuna anında uygulanır, oda kurarken odanın bot sayısı olur.
+- **Arkadaş odaları** (Faz 4/6'nın bir kısmı, plandan sapmalarla):
+  - **Oda kodu**: §12.5'teki `Ad@Oda` + bekleme salonu yerine sunucunun ürettiği 5 karakterlik kod (karışan 0/O/1/I yok). "Oda kur" → kod + paylaşım bağlantısı (`?oda=KOD`), "Katıl" → kodla giriş. Oda başına en fazla 16 bağlantı, bot sayısını kuran seçer, boşalan oda 2 dk sonra kapanır.
+  - **Protokol** (`shared/src/net/`): kontrol mesajları JSON metin (`create/join/spawn/leave` → `joined/spawned/people/error`), sık mesajlar ikili: `INPUT` (4 bayt), `INIT` (katılınca tüm durum) ve her tick `TICK` (yeni yılanlar tam kayıtla, diğerleri yalnızca kafa/açı/skor; ölenler; yem ekle/taşı/sil). §12.2'deki opcode tablosundan sade.
+  - **Gövde senkronu**: gövde yalnızca yılan ilk göründüğünde gider; istemci `WorldMirror` her tick gelen kafa konumundan aynı `Body` algoritmasıyla gövdeyi uzatır. Sunucu kafa konumunu float32'ye yuvarlar → istemci gövdesi bit bit aynı (testle doğrulandı). `FoodStore` sunucuda değişiklik kaydı tutar (`trackChanges`).
+  - **AOI yok**: her istemciye tüm yılanlar ve yem değişiklikleri gider (16 kişilik oda için yeterli). Görüş alanı süzmesi ve bant genişliği Faz 5'te.
+  - **İstemci**: `GameSession` arayüzü (çevrimdışı `OfflineGame` / oda `NetGame`), 2 tick'lik titreşim tamponu, `Renderer`/HUD `WorldView` üzerinden çizer. Kendi yılanında tahmin yok (gecikme ≈ RTT + ~66 ms).
+  - **Paylaşım adresi**: sunucu, varsayılan ağ yolunun yerel adresini (UDP yol seçimi, paket gönderilmez) öne koyar; bu makinede VirtualBox bağdaştırıcısı yerine Wi-Fi adresi seçilir.
+  - **Çalıştırma**: `Oyna.bat` oda sunucusunu (8080) ve Vite'ı (5173, `/ws` vekili) `concurrently` ile birlikte açar; paketler eksikse `npm install` yapar. Yeni bağımlılık: `ws` 8.22.0 (+ `@types/ws`).
+- **Testler**: 39 test (yeni: protokol/senkron `net.test.ts`, ölüm yemi bekleme süresi, ortam yemi büyümesi, bot sayısı). İki başsız istemciyle çalışan sunucuya karşı uçtan uca deneme: kodla katılma, olmayan oda hatası, karşılıklı görme, girdinin yansıması, iki aynanın aynı tick'te birebir aynı olması, menüye dönüp yeniden doğma, çıkınca yılanın kalkması — hepsi geçti.
+
+### 0.4 Oyuncu İstekleri: Dönüş, Hız, Kalıcı Yem, Büyüklük Döngüsü, Arka Plan (2026-10-18)
+
+- **Dönüş**: `turnRateBase` (açısal hız sabiti) yerine `turnRadiusK = 2.2`: en dar dönüş dairesinin yarıçapı `r × 2.2`, açısal hız = hız / bu yarıçap. Hızlanınca da aynı daire çizilir (eskiden boost'ta daire 2 kat genişti). Doğduğunda daire yarıçapı ~58 u → ~32 u.
+- **Hız**: normal 230 → **276** (+%20), boost 460 → **736** (+%60). Mıknatıs hızı 600 → 900 (hızlı yılan yemi geride bırakmasın).
+- **Oyun hızı sürgüsü**: menüde "Ayarlar" başlığı altında bot sayısının yanında (%50–%200, varsayılan %100, localStorage). Yeni `SimConfig.speedScale` normal/boost/mıknatıs hızını çarpar; dönüş dairesi değişmez. Tek kişilik oyuna anında uygulanır; oda kurulurken odanın hızı olur (oda bilgisinde "hız %150" görünür).
+- **Yemler kaybolmaz**: boost ve ölüm yemlerinin ömrü kaldırıldı (`boostFoodLifeTicks`/`deathFoodLifeTicks` yok), ortam yemi zaten kalıcıydı.
+- **Büyüklük döngüsü** (yeni `foodCap*` ayarları): her 0.5 sn'de ilk 15 yılanın toplam skoru bakılır. **1 000 000**'a ulaşınca ortam yemi yenilenmez, var olan ve bu sırada düşen tüm yemler 10–45 sn içinde rastgele söner. Toplam **750 000**'e inince sönmekte olan yemler yeniden kalıcı olur ve ortam yemi ~2 sn'de tamamlanır. Ölçekli deneme (eşikler 100k/75k, 20 bot, 40 dk): toplam 75k–120k arasında salınıyor, döngü birkaç dakikada bir tekrarlanıyor. Gerçek eşiklerle yalnızca botlar 1M'a ulaşmıyor (20 bot / 2 saat: ilk 15 toplamı en çok ~230k); sınır uzun yaşayan gerçek oyuncularla devreye girer.
+- **Güvenlik sınırı**: ortam dışı yem 30 000'i aşarsa yalnızca fazlası (en eskiler) söner (`looseFoodMax`); normal oyunda bu sayıya yaklaşılmıyor (denemelerde en çok ~900).
+- **Protokol v2**: TICK'e "sönme zamanı değişen yem" bölümü eklendi (`FoodStore.setExpire` + `expireLog`); `create` mesajı `speed` taşır; yeni `away` mesajı.
+- **Arka planda akış**: istemci sekme gizlenince/öne gelince `away` bildirir. Odada tek kişi varken o kişi arka plandaysa sunucu odanın döngüsünü durdurur (botlu tek kişilik oyun da tarayıcı kare çizmediği için duraklar); odada en az bir başka kişi varsa oda hep akar ve arka plandaki istemci gelen tick'leri beklemeden uygular. Denendi: tek kişi arka planda → tick durdu; ikinci oyuncu katıldı → oda sürdü, arka plandaki istemci saniyede 30 tick almaya devam etti.
+- **Ölüm parlaması**: ölen yılanın son çizilen gövdesi boyunca (en fazla 500 nokta) 0.6 sn'de hızla yükselip dışa genişleyerek sönen, yılan renginden beyaza kaymış hafif ışık (eklemeli karışım, en çok %50 opak). Odadan/oyundan çıkışta (`left`) yok.
+- **Ölüm yemi rengi**: gövde rengi beyaza %74 karıştırılmış (ör. kırmızı yılanın kalıntısı açık pembe-beyaz), merkezi beyaz, dış halesi biraz daha renkli (%40).
+- **Testler**: 47 test (yeni: boost'ta aynı dönüş dairesi, hız oranları, hız sürgüsü, kalıcı yem, sınır döngüsüne giriş/çıkış, güvenlik sınırı, sönme zamanının aynaya gitmesi). `simbench` 20 bot / 180 sn: sınıra çarpan bot yok, tick ort. 0.24 ms.
+
+### 0.5 Oyuncu İstekleri: Yumuşak Hızlanma, Başlatıcı, Ölüm Efektleri (2026-10-18)
+
+- **Yumuşak hızlanma**: boost'a basınca hız tek tick'te 276 → 736'ya (2,7 kat) sıçradığı için yılanlar öne "ışınlanıyor" gibiydi. Yeni `boostRampUpSeconds = 0.3` / `boostRampDownSeconds = 0.35`: `Snake.boostLevel` (0..1) bu sürelerde doğrusal değişir, hız `speedAtBoostLevel` ile smoothstep eğrisinde normal ↔ boost arasında geçer (ivme de sıçramaz). Açısal hız = o anki hız / dönüş yarıçapı, yani geçişte de aynı daire çizilir. Boost harcaması basıldığı anda başlar (değişmedi). İstemcide parlama ve boncuk dalgası da yumuşak geçer. Ağ protokolü değişmedi (istemci kafa konumlarını sunucudan alır).
+- **Başlatıcı (`Oyna.exe`)**: `Oyna.bat` kaldırıldı. Yerine Windows'un .NET Framework derleyicisiyle derlenen WinForms penceresi (`tools/launcher/Launcher.cs`, `npm run launcher`): durum göstergesi, Başlat/Durdur, Oyunu aç, Yeniden başlat, kayıtlar, yerel ve LAN adresi + Kopyala, "hazır olunca tarayıcıda aç" ve "açılışta başlat" seçenekleri. Alt süreçler bir Windows iş nesnesine (Job Object, `KILL_ON_JOB_CLOSE`) bağlı: pencere kapanınca, başlatıcı çökünce veya zorla sonlandırılınca sunucu ve Vite de kapanır (üçü de denendi). Portu tutan eski bir node süreci varsa kullanıcıya sorup onu başlatan araç zinciriyle (tsx watch, vite, npm, concurrently) birlikte kapatır. Hazır olma `/health` ve 5173 yoklanarak anlaşılır; süreç beklenmedik kapanırsa hata ve kayıtlar gösterilir. Tek kopya çalışır (ikinci açılış var olan pencereyi öne getirir).
+- **Ölüm efektleri** (`render/DeathFx.ts`, eski hafif parlamanın yerine): gövde boyunca baştan kuyruğa yayılan zincirleme patlama (beyaz sıcak çekirdek + renkli ışık), her patlamadan saçılan, hızıyla uzayan kuyruklu kıvılcımlar (ölüm başına ~190, ekranda en çok 1800), kafada büyük parlama ve 2–3 şok dalgası halkası, ölüm yemleri bir an büyüyüp yerine oturur. Yakında ölen yılan ekranı büyüklüğüyle orantılı hafifçe sarsar.
+  - **Oyuncu öldürünce**: daha güçlü patlama, sarsıntı, altın ekran kenarı flaşı, üst ortada "ELENDİ!" + rakibin adı; 4 sn içinde art arda öldürmede "ÇİFTE ÖLDÜRME!", "ÜÇLÜ ÖLDÜRME!", "SERİ ×N!" (renk sarıdan kırmızıya). HUD'a "Öldürme" sayacı eklendi (her hayatta sıfırlanır).
+  - **Oyuncu ölünce**: en güçlü patlama, güçlü sarsıntı, kırmızı ekran kenarı flaşı.
+  - `died` olayı artık ölenin adını ve rengini taşır (yılan dünyadan çıktıktan sonra da bildirim için); protokol değişmedi, ayna bunları kendi yılanından doldurur.
+- **Testler**: 48 test (yeni: hızlanma geçişi — ilk tick'te sıçrama yok, tick başına değişim sınırlı, ~0.3 sn'de tam hıza çıkar, bırakınca yumuşak iner).
+
+### 0.6 Oyuncu İstekleri: Sürekli Yem, Büyük Harita, Dev Yılanlar (2026-10-18)
+
+- **Ortam yemi sürekli oluşur**: eskiden yalnızca yenen yemin yerine yenisi çıkıyordu (sayı sabit). Artık kimse yemese de her **0.8 sn**'de (`ambientSpawnIntervalTicks`, 1 sn'den %20 kısa) arenanın rastgele yerlerine hedefin %0.3'ü kadar yem çıkar (R=10000'de ~95). Yenen yem yine yakınında yeniden doğar. Kalıcı ortam yemi hedefin 2 katını (`ambientMaxFactor`) aşınca fazlası rastgele seçilip 10–45 sn'de söner: yem çıkmaya devam eder, sayı ~63 bin civarında dengelenir.
+- **Harita çapı 2 kat**: oda ve botlu oyun R 5000 → **10000** (varsayılan 6000 → 12000). Yoğunluk aynı, ortam yemi hedefi ~7 850 → ~31 400.
+- **Yem 2 kat büyütür**: `ambientGrowth` 3 → **6** (yalnızca ortam yemi; boyutu aynı).
+- **Kalınlaşma biraz arttı**: `rK` 2.4 → **3** (sonra §0.7'de 6).
+- **Ölüm yemi skorun tamamı**: `deathDropRatio` 0.8 → **1** (1000 skorlu yılan toplam 1000 değerinde yem bırakır).
+- **Büyüklük sınırı eşikleri** önce 8M/6M'e çıkarıldı (yem arzı ~8 kat artınca eski 1M eşiği yalnızca botlarla ~5. dakikada devreye girip ortam yemini kesiyordu), ardından oyuncu isteğiyle **5M / 3M** yapıldı.
+- **Testler**: 49 test (yeni: kimse yemese de yem çıkması, üst sınırda dengelenme).
+
+### 0.7 Oyuncu İstekleri: Ölüm Yemi Kalınlığı, Hız Tuşları, Daha Kalın Yılanlar (2026-10-18)
+
+- **Ölüm yemi yılan kalınlığında**: `deathOrbSizeMin/Max` 0.7/0.95 → **1/1**; ince yılan ince, kalın yılan kalın kalıntı bırakır. Kürenin dokusu yumuşak kenarlı olduğu için çizimde 1.15 katı çizilir (görünen kenar gövde boncuğuyla aynı yere gelir).
+- **Kalınlık 2 kat** (`rK` 3 → 6) denendi, beğenilmedi (küçük yılanlar da kalınlaştı); yerine **kademeli büyüme** geldi:
+  - `growthTierScores = [10k, 100k, 1M]`. Kalınlık: skor her ikiye katlandığında yarıçap `rK (3) × kademe çarpanı` kadar artar, çarpanlar `rTierMul = [1, 3, 7, 12]`. Boy: `lenBase + lenK × P(skor)`, P kademe içinde skor^üs gibi büyür, üsler `lenTierExp = [0.6, 0.65, 0.7, 0.75]` (eski `lenExp` kaldırıldı). İkisi de eşiklerde kesintisiz.
+  - Yarıçap / boy: 400 → 28 / 630, 10k → 42 / 3 637, 100k → 72 / 15 800, 1M → 142 / 78 800, 10M → 261 / 443 000. 10k altı eskisiyle (rK 3) aynı; 1M'lik yılan 400'lükten 5 kat kalın, 125 kat uzun.
+  - `simbench` 20 bot / 600 sn: tick ort. 0.32 ms, en yüksek skor ~500k, sınıra çarpan yok.
+- **Büyüklük sınırı** 5M / 3M.
+- **Oyun içi hız tuşları**: **H** +0.25x, **Y** −0.25x, **R** 1.0x (sınırlar menü sürgüsüyle aynı: 0.5x–2x; tuşa basılı tutmak tekrarlamaz, tuşun üzerindeki harfe bakılır). Ekranın alt ortasında "Oyun hızı: 1.25x" bildirimi çıkar.
+  - Çevrimdışı (tüm diğer yılanlar bot): her zaman; menüdeki sürgü ve kayıtlı ayar da güncellenir.
+  - Odada: odayı kuran her zaman; diğerleri yalnızca odada kendilerinden başka yılanı olan gerçek oyuncu yoksa. Yetkisi yoksa "Hızı yalnızca odayı kuran değiştirebilir" çıkar. Kurucu odadan çıkarsa kurucu yetkisi kimseye geçmez.
+  - **Protokol v3**: istemci → `{t:'speed', change:'up'|'down'|'reset'}`; sunucu → herkese `{t:'speed', speed}` ya da isteyene `{t:'speedDenied'}`. Ayna (`WorldMirror.setSpeedScale`) gövde kırpma payını yeniler.
+  - Uçtan uca deneme (iki WebSocket istemcisi): kurucu oynarken misafirin isteği reddedildi, kurucunun değişikliği ikisine de gitti, kurucu çıkınca tek kalan misafir değiştirebildi.
+  - **Yeniden ayar (oyuncu isteği)**: 50 bine kadar ince ve uzun, sonra kademe kademe kalınlaşır. `growthTierScores = [50k, 200k, 1M]`, `rTierMul = [0.7, 4, 8, 12]`, `lenTierExp = [0.65, 0.68, 0.72, 0.76]`. Yarıçap / boy: 400 → 23 / 808, 10k → 33 / 5 700, 50k → 38 / 16 000, 200k → 62 / 40 800, 1M → 118 / 130 000, 10M → 237 / 747 000. `simbench` 20 bot / 600 sn: tick ort. 0.74 ms (gövdeler uzadığı için öncekinin ~2 katı), en kötü 6.5 ms.
+- **Mini harita**: skor tablosunun birincisi nabız gibi atan halkalı altın nokta (birinci oyuncunun kendisiyse beyaz noktasının çevresinde halka). Mini harita 0.1 sn'de bir çizilir.
+- **Şakacı logo**: menü her açıldığında logo rastgele "Yılan.io", "Dolan.io" ya da "Cihan.io" yazar.
+- **Testler**: 51 test (yeni: hız adımları ve sınırlar, kademeli büyüme).
+
+### 0.8 Oyuncu İstekleri: Mobil/Tablet, Tam Ekran, Yem Sınırı (2026-10-18)
+
+- **Her cihazda oynanır**: dokunmatikte ekranda sürüklemek sanal joystick (parmağın değdiği yerde belirir), sağ alttaki düğme basılı tutulunca hızlanma (`input/TouchControls.ts`). Dokunmatik/fare son kullanılana göre algılanır (`input/device.ts`, `<body class="touch">`); dokunmatikte mini harita sol alta, istatistikler sol üste geçer, ipuçları dokunmatiğe göre değişir.
+- **Köşe düğmeleri**: sol üstte tam ekran aç/kapat (her zaman; **F** tuşu da) ve oyunda "menüye dön" (dokunmatikte Esc yerine). iPhone Safari tam ekran API'sini desteklemez, düğme gizlenir; ana ekrana eklenince tam ekran açılır (`apple-mobile-web-app-capable`).
+- **Ekrana göre boyut**: menü (rem) ve HUD (em) yazı boyutları ekranın kısa kenarıyla `clamp()` içinde ölçeklenir; mini harita, düğmeler, joystick vmin ile. Alçak ekranda (≤520 px) skor tablosu ilk 5 + oyuncu. Çentikli ekranlarda güvenli alan payı.
+- **Sürekli yem kaldırıldı** (§0.6 geri alındı): her 0.8 sn'de arenaya yem eklenmesi ortam yemini hedefin 2 katına (~63 bin) çıkarıyor, oyun zamanla ağırlaşıyordu. Artık ortam yemi hedefte sabit (yenen yakınında yeniden doğar, eksik tamamlanır); `ambientSpawnIntervalTicks`, `ambientSpawnBatchFrac`, `ambientMaxFactor` kaldırıldı. Yemlerin kalıcılığı, büyüklük döngüsü ve `looseFoodMax` aynı. `simbench` 20 bot / 600 sn: toplam yem ~77 bin → **~38 bin**.
+
+### 0.9 Oyuncu İsteği: Takılmalar ve 144 Hz (2026-10-18)
+
+- **Sorun**: oyun ilerleyip yılanlar uzadıkça kare süresi uzuyordu. Ölçüm (1024×768, 20 bot, 5 dk sonra, en uzun yılan ~23 000 u): kare **~57 ms** (≈17 FPS), anlık takılmalar 260 ms'ye kadar. Simülasyon masumdu (tick ~0.3 ms); süre çizimdeydi:
+  - Ekran dışındaki gövde parçaları da çiziliyordu (kafası görüş alanına gövde boyu kadar yakın her yılanın tamamı): ~30 000 sprite.
+  - Sprite havuzları kullanılmayanları `visible = false` yapıyordu; PixiJS v8'de bu her karede tüm sahnenin çizim listesini baştan kurduruyor.
+  - `samplePath` her karede her gövdeyi nokta nokta (karekökle) yürüyordu.
+- **Düzeltmeler** (görüntü aynı; grafik ayarı, yem sayısı ve oyun kuralları değişmedi):
+  - `SpritePool` artık her havuz için tek bir `ParticleContainer` (düz parçacıklar, tek çizim çağrısı); aynı doku, ölçek, renk ve saydamlık. Kıvılcımlar için dönüş açık.
+  - Gövde parçaları (parlama, tüp, boncuk) görüş alanının dışındaysa çizilmez; ölüm patlaması için gövde örnekleri yine tam alınır.
+  - `samplePath` gövde noktalarının sabit aralıklı olmasından yararlanıp her örneğin yerini indeksle hesaplar (eskisiyle en büyük fark 0.012 u).
+  - Pixi sahnesinde olay/isabet araması kapalı (`stage.eventMode = 'none'`; girdi DOM olaylarıyla okunuyor), WebGL `powerPreference: 'high-performance'` (çift ekran kartlı dizüstülerde güçlü kart).
+- **Sonuç** (aynı senaryo): kare ~57 ms → **~5 ms** (CPU ~2 ms + GPU ~3 ms; gerçek döngüde ikisi paralel çalışır), çizilen nesne ~30 000 → ~2 500. Oyuncu 67 000 u boyunda dev yılanken (en uzak zoom, ekranda ~1 200 yem) de ~5 ms. 144 Hz için kare bütçesi 6.9 ms.
+
+
+### 0.5 Sunucusuz Odalar ve Yayın (2026-10-18, oyuncu isteği)
+
+- **Karar**: odalar için ayrı sunucu/veritabanı yok; **odayı kuranın tarayıcısı odanın geçici sunucusu**. `§0.3`'teki
+  `server/src/rooms.ts` oda mantığı ortam bağımsız `shared/src/net/RoomHost.ts`'e taşındı (aynı kurallar: 16 kişi,
+  tek kişi arka plandaysa durma, hız yetkisi kurucuda); Node `ws` sunucusu kaldırıldı.
+- **Bağlantı**: PeerJS 1.5.5 (ücretsiz `0.peerjs.com` eşleştirme + PeerJS'in ücretsiz TURN'ü). Oda kodu = kurucunun
+  PeerJS kimliği (`yilan-io-KOD`); katılan WebRTC veri kanalı açar (güvenilir, sıralı, `raw`). Kurucunun kendi oyunu
+  aynı sayfadaki kanal (`loopback`) ile bağlanır; `NetGame` iki durumu ayırt etmez.
+- **Protokol v4**: `create/join` mesajları kalktı (katılmak = kanal açmak; sürüm PeerJS `metadata`sında). 16 KB'tan büyük
+  ikili mesajlar (INIT) `Chunk` (4) parçalarıyla gider; tarayıcıların veri kanalı mesaj sınırına takılmaz.
+- **Arka plan**: kurucunun döngüsü bir Worker'ın `setInterval`'ından beslenir (ana sayfa zamanlayıcıları gizli sekmede
+  1 Hz'e düşer). Katılanda 8 sn veri gelmezse bağlantı kopmuş sayılır.
+- **Yenileme**: kurucu sayfayı yenilerse oda `sessionStorage`'daki kodla yeniden kurulur (dünya sıfırlanır); katılanlar
+  ~10 sn boyunca kendiliğinden yeniden katılmayı dener.
+- **Yayın**: statik site, Cloudflare Pages (ücretsiz, trafik sınırsız) → `npm run deploy` (`cihanio.pages.dev`).
+  `cihanio.com` 2026-10-18'de boştaydı; `.com` alan adı ücretlidir, sonradan Pages projesine bağlanabilir.
+- **Doğrulama**: 48 test (yeni: RoomHost akışı/duraklama/dolu oda/hız yetkisi, parçalama). Tarayıcıda iki sekme:
+  oda kur → bağlantıyla katıl (WebRTC), katılanın yılanı kurucuda görünüyor, kurucu 30 tick/sn; kurucu yenileyince
+  aynı kodla yeniden kuruldu, katılan kendiliğinden geri bağlandı.
 ---
 
 ## 1. Hedef

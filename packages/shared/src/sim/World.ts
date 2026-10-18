@@ -2,21 +2,24 @@ import { AMBIENT_FOOD_COLORS } from '../colors';
 import {
   DT,
   bodyTrimMargin,
+  clampSpeedScale,
   foodRadius,
   lengthForScore,
   magnetRadius,
   makeConfig,
   radiusForScore,
-  speedFor,
-  turnRateFor,
+  speedAtBoostLevel,
+  turnRadiusFor,
   type SimConfig,
 } from '../config';
 import { TAU, angleDiff, clamp, normalizeAngle } from '../math';
 import { Rng } from '../rng';
 import { BodyGrid } from './BodyGrid';
 import { FoodKind, FoodStore } from './FoodStore';
+import { rankAmong, topScoreSum, topSnakes } from './ranking';
 import { Snake } from './Snake';
 import { findSpawnPoint } from './spawn';
+import type { WorldView } from './WorldView';
 
 export type DeathReason = 'border' | 'body' | 'head' | 'left';
 
@@ -30,6 +33,9 @@ export type SimEvent =
       killerId: number;
       score: number;
       isBot: boolean;
+      /** Ölenin adı ve renk indeksi (yılan artık dünyada yok; efektler ve bildirimler için). */
+      name: string;
+      color: number;
     }
   | {
       type: 'foodEaten';
@@ -62,7 +68,7 @@ interface Death {
  * Oyun dünyası: kuralların tek kaynağı. Sunucu bunu yetkili olarak, istemci çevrimdışı modda
  * aynen çalıştırır. `step()` sabit DT ile bir tick ilerletir (CURRENT_PLAN.md §8).
  */
-export class World {
+export class World implements WorldView {
   readonly cfg: SimConfig;
   readonly rng: Rng;
   readonly food: FoodStore;
@@ -74,10 +80,15 @@ export class World {
   /** Bu tick başında 1. sıradaki yılan (kafa-kafa kuralı için). */
   leaderId = 0;
   readonly ambientTarget: number;
+  /**
+   * Büyüklük sınırına ulaşıldı: ilk N yılanın toplam skoru `foodCapHigh`ı geçti ve henüz
+   * `foodCapLow`a inmedi. Bu sürede ortam yemi yenilenmez, yemler söner.
+   */
+  foodCapped = false;
 
   private events: SimEvent[] = [];
   private nextSnakeId = 1;
-  private readonly trimMargin: number;
+  private trimMargin: number;
   private readonly scratch: number[] = [];
   private readonly tmp = { x: 0, y: 0 };
   /** Bu tick yenen ortam yemlerinin konumları (x, y çiftleri); yenileri bunların yakınında doğar. */
@@ -85,11 +96,12 @@ export class World {
 
   constructor(cfg: Partial<SimConfig> = {}, seed = 1) {
     this.cfg = makeConfig(cfg);
+    this.cfg.speedScale = clampSpeedScale(this.cfg.speedScale);
     this.rng = new Rng(seed);
     const R = this.cfg.arenaRadius;
-    this.food = new FoodStore(R, this.cfg.gridCellSize, 2048);
-    this.grid = new BodyGrid(R, this.cfg.gridCellSize);
     this.ambientTarget = Math.floor(Math.PI * R * R * this.cfg.foodDensity);
+    this.food = new FoodStore(R, this.cfg.gridCellSize, Math.max(2048, this.ambientTarget * 1.5));
+    this.grid = new BodyGrid(R, this.cfg.gridCellSize);
     this.trimMargin = bodyTrimMargin(this.cfg);
     for (let i = 0; i < this.ambientTarget; i++) this.spawnAmbientFood();
   }
@@ -110,8 +122,8 @@ export class World {
         ? { x: opts.x, y: opts.y, angle: opts.angle ?? 0 }
         : findSpawnPoint(this);
     angle = normalizeAngle(angle);
-    s.x = s.px = x;
-    s.y = s.py = y;
+    s.x = s.px = Math.fround(x);
+    s.y = s.py = Math.fround(y);
     s.angle = s.pangle = s.targetAngle = angle;
     s.spawnTick = this.tick;
     s.body.reset(x, y, angle, s.length + this.trimMargin);
@@ -121,12 +133,18 @@ export class World {
     return s;
   }
 
-  /** Oyuncu ayrıldı: yılan ölmüş gibi yem bırakarak kaldırılır. */
-  removeSnake(id: number): void {
+  /** Oyuncu ayrıldı: yılan ölmüş gibi yem bırakarak (veya `dropFood` false ise sessizce) kaldırılır. */
+  removeSnake(id: number, dropFood = true): void {
     const s = this.snakes.get(id);
     if (!s) return;
-    this.kill(s, 'left', 0);
+    this.kill(s, 'left', 0, dropFood);
     this.snakeList = this.snakeList.filter((o) => o.alive);
+  }
+
+  /** Oyun hızı sürgüsü: yılan ve mıknatıs hızlarını çarpar (dönüş dairesi değişmez). */
+  setSpeedScale(v: number): void {
+    this.cfg.speedScale = clampSpeedScale(v);
+    this.trimMargin = bodyTrimMargin(this.cfg);
   }
 
   setInput(id: number, angle: number, boost: boolean): void {
@@ -158,22 +176,12 @@ export class World {
     return e;
   }
 
-  /** Skora göre sıralı ilk `n` yılan. */
   getLeaderboard(n: number): Snake[] {
-    return [...this.snakeList]
-      .sort((a, b) => b.score - a.score || a.spawnTick - b.spawnTick)
-      .slice(0, n);
+    return topSnakes(this.snakeList, n);
   }
 
-  /** 1'den başlayan sıra; yılan yoksa 0. */
   rankOf(id: number): number {
-    const s = this.snakes.get(id);
-    if (!s) return 0;
-    let rank = 1;
-    for (const o of this.snakeList) {
-      if (o.score > s.score || (o.score === s.score && o.spawnTick < s.spawnTick)) rank++;
-    }
-    return rank;
+    return rankAmong(this.snakeList, this.snakes.get(id));
   }
 
   private updateSize(s: Snake): void {
@@ -208,11 +216,18 @@ export class World {
       }
     }
 
-    const maxTurn = turnRateFor(cfg, s.radius) * DT;
+    // Hız boost'a anında sıçramaz, `boostRamp*Seconds` içinde yumuşakça çıkar/iner
+    const ramp = s.boosting ? DT / cfg.boostRampUpSeconds : -DT / cfg.boostRampDownSeconds;
+    s.boostLevel = clamp(s.boostLevel + ramp, 0, 1);
+    const speed = speedAtBoostLevel(cfg, s.radius, s.boostLevel);
+    // Açısal hız = hız / dönüş yarıçapı: geçiş sırasında da aynı daireyi çizer
+    const maxTurn = (speed / turnRadiusFor(cfg, s.radius)) * DT;
     s.angle = normalizeAngle(s.angle + clamp(angleDiff(s.angle, s.targetAngle), -maxTurn, maxTurn));
-    const step = speedFor(cfg, s.radius, s.boosting) * DT;
-    s.x += Math.cos(s.angle) * step;
-    s.y += Math.sin(s.angle) * step;
+    const step = speed * DT;
+    // Kafa konumu ağda float32 gider; burada da float32'ye yuvarlanır ki istemci aynı kafa
+    // konumlarından birebir aynı gövdeyi kursun.
+    s.x = Math.fround(s.x + Math.cos(s.angle) * step);
+    s.y = Math.fround(s.y + Math.sin(s.angle) * step);
 
     this.updateSize(s);
     s.body.advance(s.x, s.y);
@@ -229,7 +244,7 @@ export class World {
       value,
       s.color,
       FoodKind.Boost,
-      this.tick + this.cfg.boostFoodLifeTicks,
+      this.dropExpire(),
     );
   }
 
@@ -239,9 +254,11 @@ export class World {
     const mr = magnetRadius(cfg, s.radius);
     const out = this.scratch;
     const n = food.query(s.x, s.y, mr + food.maxRadius, out);
+    const settledBorn = this.tick - cfg.deathFoodSettleTicks;
     for (let k = 0; k < n; k++) {
       const slot = out[k]!;
       if (!food.alive[slot]) continue;
+      if (food.kind[slot] === FoodKind.Death && food.born[slot]! > settledBorn) continue;
       const fx = food.x[slot]!;
       const fy = food.y[slot]!;
       const fr = food.radius[slot]!;
@@ -252,7 +269,7 @@ export class World {
       const eatDist = s.radius + fr;
       let nd = d;
       if (d >= eatDist) {
-        const pull = Math.min(d, (cfg.magnetSpeed + (mr - d) * 3) * DT);
+        const pull = Math.min(d, (cfg.magnetSpeed * cfg.speedScale + (mr - d) * 3) * DT);
         nd = d - pull;
         food.move(slot, fx + (dx / d) * pull, fy + (dy / d) * pull);
       }
@@ -270,7 +287,7 @@ export class World {
           kind: food.kind[slot] as FoodKind,
           eaterId: s.id,
         });
-        food.remove(slot);
+        food.remove(slot, s.id);
       }
     }
   }
@@ -355,12 +372,21 @@ export class World {
     return [a, b];
   }
 
-  private kill(s: Snake, reason: DeathReason, killerId: number): void {
+  private kill(s: Snake, reason: DeathReason, killerId: number, dropFood = true): void {
     if (!s.alive) return;
     s.alive = false;
     this.snakes.delete(s.id);
-    this.dropDeathFood(s);
-    this.events.push({ type: 'died', id: s.id, reason, killerId, score: s.score, isBot: s.isBot });
+    if (dropFood) this.dropDeathFood(s);
+    this.events.push({
+      type: 'died',
+      id: s.id,
+      reason,
+      killerId,
+      score: s.score,
+      isBot: s.isBot,
+      name: s.name,
+      color: s.color,
+    });
   }
 
   /**
@@ -380,7 +406,6 @@ export class World {
       cfg.deathOrbMaxCount,
     );
     const value = total / n;
-    const expire = this.tick + cfg.deathFoodLifeTicks;
     const jitter = s.radius * 0.3;
     const p = this.tmp;
     for (let i = 0; i < n; i++) {
@@ -392,33 +417,86 @@ export class World {
         value,
         s.color,
         FoodKind.Death,
-        expire,
+        this.dropExpire(),
         s.radius * rng.range(cfg.deathOrbSizeMin, cfg.deathOrbSizeMax),
       );
     }
   }
 
+  /** Boost/ölüm yeminin söneceği tick: normalde hiç (-1); büyüklük sınırındayken bir süre sonra. */
+  private dropExpire(): number {
+    return this.foodCapped ? this.capFadeTick() : -1;
+  }
+
+  private capFadeTick(): number {
+    const cfg = this.cfg;
+    return this.tick + this.rng.int(cfg.foodCapFadeMinTicks, cfg.foodCapFadeMaxTicks + 1);
+  }
+
   private maintainFood(): void {
     const food = this.food;
+    const cfg = this.cfg;
     if (this.tick % 15 === 0) {
+      this.updateFoodCap();
+      this.limitLooseFood();
       for (let slot = 0; slot < food.highWater; slot++) {
-        if (food.alive[slot] && food.expire[slot]! >= 0 && food.expire[slot]! <= this.tick) {
-          food.remove(slot);
-        }
+        if (!food.alive[slot]) continue;
+        const expire = food.expire[slot]!;
+        if (expire >= 0 && expire <= this.tick) food.remove(slot);
       }
     }
-    // Yem hiç tükenmez: yenen her ortam yemi, yendiği bölgenin yakınında yeniden doğar
-    const missing = Math.min(this.ambientTarget - food.ambientCount, this.cfg.ambientRefillPerTick);
     const near = this.eatenAmbient;
-    for (let i = 0; i < missing; i++) {
-      if (near.length >= 2) {
+    if (!this.foodCapped) {
+      // Yem hiç tükenmez: yenen her ortam yemi, yendiği bölgenin yakınında yeniden doğar.
+      // Ortam yemi sayısı hedefte sabit kalır (ortam yemi kapalı dünyada hiç doğmaz).
+      let budget = this.ambientTarget > 0 ? cfg.ambientRefillPerTick : 0;
+      while (near.length >= 2 && budget > 0) {
         const y = near.pop()!;
         this.spawnAmbientFood(near.pop()!, y);
-      } else {
-        this.spawnAmbientFood();
+        budget--;
       }
+      // Hedefin altındaysa (ör. büyüklük sınırından çıkınca) rastgele yerlerde tamamlanır
+      const missing = Math.min(this.ambientTarget - food.ambientCount, budget);
+      for (let i = 0; i < missing; i++) this.spawnAmbientFood();
     }
     near.length = 0;
+  }
+
+  /**
+   * Büyüklük döngüsü: ilk N yılanın toplamı üst eşiğe ulaşınca yemler sönmeye başlar ve
+   * ortam yemi yenilenmez; toplam alt eşiğe inince sönmekte olan yemler kalıcı olur.
+   */
+  private updateFoodCap(): void {
+    const cfg = this.cfg;
+    const food = this.food;
+    const total = topScoreSum(this.snakeList, cfg.foodCapTopN);
+    if (!this.foodCapped && total >= cfg.foodCapHigh) {
+      this.foodCapped = true;
+      for (let slot = 0; slot < food.highWater; slot++) {
+        if (food.alive[slot] && food.expire[slot]! < 0) food.setExpire(slot, this.capFadeTick());
+      }
+    } else if (this.foodCapped && total <= cfg.foodCapLow) {
+      this.foodCapped = false;
+      for (let slot = 0; slot < food.highWater; slot++) {
+        if (food.alive[slot] && food.expire[slot]! >= 0) food.setExpire(slot, -1);
+      }
+    }
+  }
+
+  /** Güvenlik sınırı: ortam dışı yem `looseFoodMax`ı aşarsa fazlası (en eskiler) söner. */
+  private limitLooseFood(): void {
+    const food = this.food;
+    if (food.looseCount <= this.cfg.looseFoodMax) return;
+    const keep: number[] = [];
+    for (let slot = 0; slot < food.highWater; slot++) {
+      if (food.alive[slot] && food.kind[slot] !== FoodKind.Ambient && food.expire[slot]! < 0) {
+        keep.push(slot);
+      }
+    }
+    const excess = keep.length - this.cfg.looseFoodMax;
+    if (excess <= 0) return;
+    keep.sort((a, b) => food.born[a]! - food.born[b]!);
+    for (let i = 0; i < excess; i++) food.setExpire(keep[i]!, this.capFadeTick());
   }
 
   /** (nearX, nearY) verilirse oraya `ambientRespawnMin..Max` uzaklıkta, yoksa arenada rastgele. */
@@ -442,12 +520,15 @@ export class World {
       x = Math.cos(th) * r;
       y = Math.sin(th) * r;
     }
+    const base = rng.int(cfg.ambientValueMin, cfg.ambientValueMax + 1);
     this.food.add(
       x,
       y,
-      rng.int(cfg.ambientValueMin, cfg.ambientValueMax + 1),
+      base * cfg.ambientGrowth,
       rng.pick(AMBIENT_FOOD_COLORS),
       FoodKind.Ambient,
+      -1,
+      foodRadius(base),
     );
   }
 

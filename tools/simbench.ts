@@ -7,10 +7,10 @@ import { BotController, TICK_RATE, World, type DeathReason } from '@yilan/shared
 
 const seconds = Number(process.argv[2] ?? 120);
 const bots = Number(process.argv[3] ?? 20);
-const arenaRadius = Number(process.argv[4] ?? 5000);
+const arenaRadius = Number(process.argv[4] ?? 10000);
 
 const world = new World({ arenaRadius }, 12345);
-const controller = new BotController(world, { targetPopulation: bots, randomInitialScores: true });
+const controller = new BotController(world, { botCount: bots, randomInitialScores: true });
 
 const deaths: Record<DeathReason, number> = { border: 0, body: 0, head: 0, left: 0 };
 let maxScore = 0;

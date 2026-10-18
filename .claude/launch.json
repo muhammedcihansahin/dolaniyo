@@ -12,6 +12,12 @@
         "--strictPort"
       ],
       "port": 5173
+    },
+    {
+      "name": "server",
+      "runtimeExecutable": "C:\\Users\\mciha\\.tools\\node\\node.exe",
+      "runtimeArgs": ["node_modules/tsx/dist/cli.mjs", "watch", "packages/server/src/index.ts"],
+      "port": 8080
     }
   ]
 }

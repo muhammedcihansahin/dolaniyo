@@ -18,6 +18,8 @@ export interface SnakeLike {
   readonly length: number;
   readonly score: number;
   readonly boosting: boolean;
+  /** Doğduğu tick (sıralamada eşit skorda önce doğan önde). */
+  readonly spawnTick: number;
   readonly body: Body;
 }
 
@@ -31,6 +33,8 @@ export class Snake implements SnakeLike {
   targetAngle = 0;
   wantBoost = false;
   boosting = false;
+  /** Hızlanma geçişi: 0 = normal hız, 1 = tam boost (bkz. `speedAtBoostLevel`). */
+  boostLevel = 0;
   score = 0;
   radius = 0;
   length = 0;

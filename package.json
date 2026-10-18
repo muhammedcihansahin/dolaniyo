@@ -19,14 +19,19 @@
     "test:watch": "vitest",
     "typecheck": "npm run typecheck -w @yilan/shared && npm run typecheck -w @yilan/client && npm run typecheck -w @yilan/server",
     "format": "prettier --write .",
-    "bench": "tsx tools/simbench.ts"
+    "bench": "tsx tools/simbench.ts",
+    "launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/launcher/build.ps1",
+    "deploy:login": "wrangler login",
+    "deploy:setup": "wrangler pages project create cihanio --production-branch main",
+    "deploy": "npm run build && wrangler pages deploy packages/client/dist --project-name cihanio --branch main"
   },
   "devDependencies": {
     "concurrently": "10.0.5",
     "prettier": "3.9.9",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "wrangler": "4.147.0"
   },
   "engines": {
     "node": ">=22.12"

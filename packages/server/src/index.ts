@@ -1,4 +1,5 @@
 import { GAME_NAME, GAME_VERSION } from '@yilan/shared';
+import dgram from 'node:dgram';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import http from 'node:http';
@@ -68,9 +69,13 @@ const server = http.createServer((req, res) => {
       name: GAME_NAME,
       version: GAME_VERSION,
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
-      rooms: 0,
-      players: 0,
     });
+    return;
+  }
+  // Odalar kurucunun tarayıcısında çalışır; tarayıcı kendi yerel ağ adresini bilemediği için
+  // paylaşım bağlantısında kullanılacak adresleri buradan alır.
+  if (url === '/api/lan') {
+    sendJson(res, 200, { lan: lanAddresses(), port: PORT });
     return;
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -84,12 +89,42 @@ const server = http.createServer((req, res) => {
   });
 });
 
-function lanAddresses(): string[] {
-  return Object.values(os.networkInterfaces())
-    .flat()
-    .filter((a) => a && a.family === 'IPv4' && !a.internal)
-    .map((a) => a!.address);
+/** Varsayılan ağ yolunun yerel adresi (Wi-Fi/Ethernet); sanal bağdaştırıcılar bunun arkasında kalır. */
+let primaryAddress: string | null = null;
+
+/** UDP soketini dış bir adrese "bağlamak" paket göndermez, yalnızca işletim sistemine yol seçtirir. */
+function detectPrimaryAddress(): Promise<void> {
+  return new Promise((resolve) => {
+    const sock = dgram.createSocket('udp4');
+    const done = () => {
+      sock.close();
+      resolve();
+    };
+    sock.on('error', done);
+    sock.connect(53, '8.8.8.8', (err?: Error) => {
+      if (!err) {
+        try {
+          primaryAddress = sock.address().address;
+        } catch {
+          // ağ yok: adresler sırasız kalır
+        }
+      }
+      done();
+    });
+  });
 }
+
+/** Yerel ağ IPv4 adresleri; arkadaşların ulaşabileceği ana adres başta. */
+function lanAddresses(): string[] {
+  const all = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.'))
+    .map((a) => a!.address);
+  return all.sort((a, b) => Number(b === primaryAddress) - Number(a === primaryAddress));
+}
+
+await detectPrimaryAddress();
+setInterval(() => void detectPrimaryAddress(), 60_000).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`${GAME_NAME} sunucusu v${GAME_VERSION} → http://localhost:${PORT}`);

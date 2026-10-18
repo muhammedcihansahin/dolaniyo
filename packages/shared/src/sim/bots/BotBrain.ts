@@ -1,6 +1,7 @@
 import { magnetRadius, speedFor } from '../../config';
 import { angleDiff } from '../../math';
 import type { Rng } from '../../rng';
+import { FoodKind } from '../FoodStore';
 import type { Snake } from '../Snake';
 import type { World } from '../World';
 
@@ -168,7 +169,11 @@ export class BotBrain {
       }
     }
     if (best < 0) return null;
-    const rich = food.value[best]! >= 3 && bestD > magnetRadius(world.cfg, s.radius);
+    const cfg = world.cfg;
+    // Ortam yeminde yalnızca en büyükleri, diğerlerinde (boost/ölüm) 3 ve üstü "değerli" sayılır
+    const richValue =
+      food.kind[best] === FoodKind.Ambient ? cfg.ambientValueMax * cfg.ambientGrowth : 3;
+    const rich = food.value[best]! >= richValue && bestD > magnetRadius(cfg, s.radius);
     return {
       angle: bestAngle,
       boost: rich && bestD < 220 && s.score > 25 && this.rng.chance(this.params.foodBoost),

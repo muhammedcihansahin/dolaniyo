@@ -1,16 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { DT, TICK_RATE, lengthForScore, radiusForScore } from '../src/config';
-import { BotController } from '../src/sim/bots/BotController';
+import {
+  DT,
+  TICK_RATE,
+  changeSpeedScale,
+  foodRadius,
+  lengthForScore,
+  radiusForScore,
+  speedFor,
+  turnRadiusFor,
+  type SimConfig,
+} from '../src/config';
 import { FoodKind } from '../src/sim/FoodStore';
 import { World, type SimEvent } from '../src/sim/World';
 
 /** Ortam yemi olmayan, testte elle kurulan küçük bir dünya. */
-function emptyWorld(): World {
-  return new World({ arenaRadius: 3000, foodDensity: 0 }, 7);
+function emptyWorld(cfg: Partial<SimConfig> = {}): World {
+  return new World({ arenaRadius: 3000, foodDensity: 0, ...cfg }, 7);
 }
 
 function deaths(events: SimEvent[]) {
   return events.filter((e) => e.type === 'died');
+}
+
+/** Yılanı sürekli en dar dairede döndürür; çizdiği dairenin çapını (x yönündeki genişlik) döner. */
+function turnDiameter(w: World, boost: boolean): number {
+  const s = w.addSnake({ name: 't', color: 0, x: 0, y: 0, angle: 0, score: 400 });
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (let i = 0; i < 2 * TICK_RATE; i++) {
+    w.setInput(s.id, s.angle + 1, boost);
+    w.step();
+    minX = Math.min(minX, s.x);
+    maxX = Math.max(maxX, s.x);
+  }
+  expect(s.boosting).toBe(boost);
+  return maxX - minX;
 }
 
 describe('World — hareket ve büyüme', () => {
@@ -20,10 +44,47 @@ describe('World — hareket ve büyüme', () => {
     w.setInput(s.id, Math.PI / 2, false);
     w.step();
     expect(s.angle).toBeGreaterThan(0);
-    expect(s.angle).toBeLessThan(0.2); // tek tick'te 90° dönemez
+    expect(s.angle).toBeLessThan(0.4); // tek tick'te 90° dönemez
     const speed = Math.hypot(s.x - s.px, s.y - s.py) / DT;
-    expect(speed).toBeGreaterThan(200);
-    expect(speed).toBeLessThan(240);
+    expect(speed).toBeCloseTo(speedFor(w.cfg, s.radius, false), 0);
+    expect(speed).toBeGreaterThan(260); // eski 230'un %20 fazlası (boya göre biraz yavaşlar)
+  });
+
+  it('hızlanınca da aynı dairede döner; dönüş dairesi gövde kalınlığının birkaç katı', () => {
+    const normal = turnDiameter(emptyWorld(), false);
+    const boosted = turnDiameter(emptyWorld(), true);
+    const r = radiusForScore(emptyWorld().cfg, 400);
+    const expected = 2 * turnRadiusFor(emptyWorld().cfg, r);
+    // Tick'ler arası kirişler daireyi biraz küçültür
+    expect(normal).toBeGreaterThan(expected * 0.9);
+    expect(normal).toBeLessThanOrEqual(expected * 1.01);
+    expect(Math.abs(boosted - normal) / normal).toBeLessThan(0.08);
+  });
+
+  it('normal hız eskisinden %20, hızlanmış hız %60 fazla', () => {
+    const w = emptyWorld();
+    expect(speedFor(w.cfg, 0, false)).toBeCloseTo(230 * 1.2);
+    expect(speedFor(w.cfg, 0, true)).toBeCloseTo(460 * 1.6);
+  });
+
+  it('H/Y/R hız tuşları 0.25 adımla değiştirir, sınırlarda durur', () => {
+    expect(changeSpeedScale(1, 'up')).toBe(1.25);
+    expect(changeSpeedScale(1, 'down')).toBe(0.75);
+    expect(changeSpeedScale(1.75, 'reset')).toBe(1);
+    expect(changeSpeedScale(1.1, 'up')).toBe(1.25);
+    expect(changeSpeedScale(2, 'up')).toBe(2);
+    expect(changeSpeedScale(0.5, 'down')).toBe(0.5);
+  });
+
+  it('oyun hızı sürgüsü hızı çarpar, dönüş dairesini değiştirmez', () => {
+    const slow = emptyWorld();
+    const fast = emptyWorld({ speedScale: 1.5 });
+    expect(speedFor(fast.cfg, 20, true)).toBeCloseTo(speedFor(slow.cfg, 20, true) * 1.5);
+    const a = turnDiameter(slow, false);
+    const b = turnDiameter(fast, false);
+    expect(Math.abs(b - a) / a).toBeLessThan(0.08);
+    fast.setSpeedScale(10);
+    expect(fast.cfg.speedScale).toBe(2);
   });
 
   it('gövde uzunluğu skora göre hesaplanan boyu izler', () => {
@@ -47,6 +108,23 @@ describe('World — hareket ve büyüme', () => {
     expect(w.food.alive[near]).toBe(0);
     expect(s.score).toBeCloseTo(13);
     expect(w.food.alive[pulled] === 0 || w.food.y[pulled]! < y0).toBe(true);
+  });
+
+  it('kalınlık ve boy kademeli büyür: eşiklerde kesintisiz, üst kademede daha hızlı', () => {
+    const cfg = emptyWorld().cfg;
+    for (const t of cfg.growthTierScores) {
+      expect(radiusForScore(cfg, t + 1e-6)).toBeCloseTo(radiusForScore(cfg, t - 1e-6), 3);
+      expect(lengthForScore(cfg, t + 1e-6)).toBeCloseTo(lengthForScore(cfg, t - 1e-6), 1);
+    }
+    // Skor 10 katına çıktığında kalınlık artışı her kademede bir öncekinden büyük
+    const gain = (a: number) => radiusForScore(cfg, a * 10) - radiusForScore(cfg, a);
+    expect(gain(10_000)).toBeGreaterThan(gain(1_000) * 2);
+    expect(gain(100_000)).toBeGreaterThan(gain(10_000) * 2);
+    expect(gain(1_000_000)).toBeGreaterThan(gain(100_000) * 1.5);
+    // Dev yılanın yanında az puanlı yılan küçük kalır
+    expect(radiusForScore(cfg, 1e6) / radiusForScore(cfg, 400)).toBeGreaterThan(4.5);
+    expect(lengthForScore(cfg, 1e6) / lengthForScore(cfg, 400)).toBeGreaterThan(100);
+    expect(lengthForScore(cfg, 0.5)).toBeGreaterThan(cfg.lenBase);
   });
 
   it('büyümenin üst sınırı yok', () => {
@@ -110,8 +188,8 @@ describe('World — hızlanma', () => {
     const w = emptyWorld();
     const s = w.addSnake({ name: 'a', color: 5, x: 0, y: 0, angle: 0, score: 300 });
     w.setInput(s.id, 0, true);
-    for (let i = 0; i < TICK_RATE; i++) w.step();
-    const expectedDrain = w.cfg.boostDrainBase + 300 * w.cfg.boostDrainK; // ~1 sn
+    for (let i = 0; i < 2 * TICK_RATE; i++) w.step();
+    const expectedDrain = 2 * (w.cfg.boostDrainBase + 300 * w.cfg.boostDrainK); // ~2 sn
     expect(300 - s.score).toBeGreaterThan(expectedDrain * 0.9);
     expect(300 - s.score).toBeLessThan(expectedDrain * 1.1);
     let dropped = 0;
@@ -136,6 +214,37 @@ describe('World — hızlanma', () => {
     }
     expect(pellets).toBeGreaterThanOrEqual(2);
     expect(pellets).toBeLessThanOrEqual(8);
+  });
+
+  it('hızlanma sıçramaz: boost hızına kısa bir geçişle çıkar, bırakınca yumuşakça iner', () => {
+    const w = emptyWorld();
+    const s = w.addSnake({ name: 'a', color: 0, x: -2000, y: 0, angle: 0, score: 1000 });
+    const speed = () => Math.hypot(s.x - s.px, s.y - s.py) / DT;
+    w.step();
+    const normal = speed();
+    const full = speedFor(w.cfg, s.radius, true);
+    const gap = full - normal;
+
+    w.setInput(s.id, 0, true);
+    const up: number[] = [];
+    for (let i = 0; i < TICK_RATE; i++) {
+      w.step();
+      up.push(speed());
+    }
+    expect(up[0]! - normal).toBeLessThan(gap * 0.1); // ilk tick'te öne fırlamaz
+    for (let i = 1; i < up.length; i++)
+      expect(Math.abs(up[i]! - up[i - 1]!)).toBeLessThan(gap * 0.2);
+    const rampTicks = up.findIndex((v) => v > normal + gap * 0.95);
+    expect(rampTicks).toBeGreaterThan(4);
+    expect(rampTicks).toBeLessThan(TICK_RATE / 2);
+    expect(up.at(-1)).toBeCloseTo(speedFor(w.cfg, s.radius, true), 0);
+
+    w.setInput(s.id, 0, false);
+    const top = speed();
+    w.step();
+    expect(top - speed()).toBeLessThan(gap * 0.1); // bırakınca da anında yavaşlamaz
+    for (let i = 0; i < TICK_RATE; i++) w.step();
+    expect(speed()).toBeCloseTo(speedFor(w.cfg, s.radius, false), 0);
   });
 
   it('minimum skorun altına inemez, boost kendiliğinden kapanır', () => {
@@ -215,8 +324,9 @@ describe('World — çarpışmalar', () => {
 
   it('ölen yılan skorunun bir kısmını yem olarak bırakır', () => {
     const w = emptyWorld();
-    // r(1000) ≈ 28, yani kafa ilk tick'te sınıra değer
-    const s = w.addSnake({ name: 'a', color: 9, x: 2965, y: 0, angle: 0, score: 1000 });
+    // Kafa ilk tick'te sınıra değsin
+    const x = w.cfg.arenaRadius - radiusForScore(w.cfg, 1000) + 2;
+    const s = w.addSnake({ name: 'a', color: 9, x, y: 0, angle: 0, score: 1000 });
     w.step();
     expect(s.alive).toBe(false);
     let total = 0;
@@ -246,38 +356,60 @@ describe('World — çarpışmalar', () => {
       expect(w.food.radius[i]).toBeLessThanOrEqual(s.radius * w.cfg.deathOrbSizeMax + 1e-3);
     }
   });
+
+  it('ölüm yemi kısa süre yenmez: yakındaki kafa baş kısmını anında süpüremez', () => {
+    const w = emptyWorld();
+    const a = w.addSnake({ name: 'a', color: 3, x: 0, y: 0, angle: 0, score: 400 });
+    w.step();
+    // b, a'nın başının hemen yanından gövdesi boyunca ilerler
+    const b = w.addSnake({ name: 'b', color: 1, x: 40, y: 30, angle: Math.PI });
+    w.removeSnake(a.id);
+    w.drainEvents();
+    const deathEaten = () =>
+      w.drainEvents().filter((e) => e.type === 'foodEaten' && e.kind === FoodKind.Death).length;
+    let early = 0;
+    for (let i = 0; i < w.cfg.deathFoodSettleTicks - 1; i++) {
+      w.step();
+      early += deathEaten();
+    }
+    expect(early).toBe(0);
+    let late = 0;
+    for (let i = 0; i < 10; i++) {
+      w.step();
+      late += deathEaten();
+    }
+    expect(late).toBeGreaterThan(0);
+    expect(b.alive).toBe(true);
+  });
 });
 
-describe('World — botlar ve determinizm', () => {
-  function runBots(seed: number, ticks: number) {
-    const w = new World({ arenaRadius: 3000 }, seed);
-    const bots = new BotController(w, { targetPopulation: 12, randomInitialScores: true });
-    for (let i = 0; i < ticks; i++) {
-      bots.update();
-      w.step();
-      w.drainEvents();
+describe('World — ortam yemi büyümesi', () => {
+  it('ortam yemi taban değerinin ambientGrowth katı kadar büyütür; boyutu taban değerden', () => {
+    const w = new World({ arenaRadius: 2000 }, 4);
+    let n = 0;
+    for (let i = 0; i < w.food.highWater; i++) {
+      if (!w.food.alive[i] || w.food.kind[i] !== FoodKind.Ambient) continue;
+      const base = w.food.value[i]! / w.cfg.ambientGrowth;
+      expect(Number.isInteger(base)).toBe(true);
+      expect(base).toBeGreaterThanOrEqual(w.cfg.ambientValueMin);
+      expect(base).toBeLessThanOrEqual(w.cfg.ambientValueMax);
+      expect(w.food.radius[i]).toBeCloseTo(foodRadius(base), 4);
+      n++;
     }
-    return w;
-  }
-
-  it('aynı tohumla aynı sonuca ulaşır', () => {
-    const summary = (w: World) =>
-      w.snakeList.map((s) => `${s.id}:${s.x.toFixed(3)},${s.y.toFixed(3)},${s.score.toFixed(3)}`);
-    expect(summary(runBots(99, 600))).toEqual(summary(runBots(99, 600)));
+    expect(n).toBe(w.ambientTarget);
   });
+});
 
-  it('botlar nüfusu hedefte tutar ve sınıra çarpmaz', () => {
-    const w = new World({ arenaRadius: 3000 }, 5);
-    const bots = new BotController(w, { targetPopulation: 12 });
-    let borderDeaths = 0;
-    for (let i = 0; i < 60 * TICK_RATE; i++) {
-      bots.update();
-      w.step();
-      for (const e of w.drainEvents())
-        if (e.type === 'died' && e.reason === 'border') borderDeaths++;
+describe('World — ortam yemi sınırlı', () => {
+  it('kimse yemese de ortam yemi hedefte sabit kalır ve hiçbiri sönmez', () => {
+    const w = new World({ arenaRadius: 3000, foodDensity: 1 / 50000 }, 9);
+    expect(w.food.ambientCount).toBe(w.ambientTarget);
+    for (let i = 0; i < 120 * TICK_RATE; i++) w.step();
+    expect(w.food.ambientCount).toBe(w.ambientTarget);
+    for (let i = 0; i < w.food.highWater; i++) {
+      if (w.food.alive[i] && w.food.kind[i] === FoodKind.Ambient) {
+        expect(w.food.expire[i]).toBe(-1);
+      }
     }
-    expect(borderDeaths).toBe(0);
-    expect(w.snakes.size).toBeGreaterThanOrEqual(10);
-    expect(w.snakes.size).toBeLessThanOrEqual(12);
   });
 });

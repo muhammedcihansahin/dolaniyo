@@ -10,6 +10,10 @@ export interface GameTextures {
   glow: Texture;
   /** Kenarları yumuşak dolu disk (ölüm yemi). */
   blob: Texture;
+  /** İnce, kenarları yumuşak halka (ölüm şok dalgası); görünen yarıçap ≈ 0.85 × yarıçap. */
+  ring: Texture;
+  /** Ortası saydam, kenarları beyaz ekran çerçevesi (ölüm/öldürme flaşı; renk tint ile). */
+  vignette: Texture;
   hexTile: Texture;
   /** Altıgen kenar uzunluğu (dünya birimi = doku pikseli). */
   hexSide: number;
@@ -32,6 +36,20 @@ function radial(stops: [number, string][]): Texture {
   ctx.beginPath();
   ctx.arc(m, m, TEX_RADIUS, 0, Math.PI * 2);
   ctx.fill();
+  return Texture.from(c);
+}
+
+function vignette(): Texture {
+  const size = 256;
+  const [c, ctx] = makeCanvas(size, size);
+  const m = size / 2;
+  const g = ctx.createRadialGradient(m, m, 0, m, m, m * Math.SQRT2);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0)');
+  g.addColorStop(0.8, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,1)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
   return Texture.from(c);
 }
 
@@ -112,6 +130,14 @@ export function createTextures(): GameTextures {
       [0.75, 'rgba(255,255,255,0.6)'],
       [1, 'rgba(255,255,255,0)'],
     ]),
+    ring: radial([
+      [0, 'rgba(255,255,255,0)'],
+      [0.64, 'rgba(255,255,255,0)'],
+      [0.85, 'rgba(255,255,255,1)'],
+      [0.92, 'rgba(255,255,255,0.55)'],
+      [1, 'rgba(255,255,255,0)'],
+    ]),
+    vignette: vignette(),
     hexTile: hexTile(hexSide),
     hexSide,
   };

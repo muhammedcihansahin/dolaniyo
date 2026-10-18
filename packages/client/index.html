@@ -4,19 +4,42 @@
     <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#0a1633" />
+    <!-- Ana ekrana eklenince tarayıcı çubukları olmadan açılsın (iPhone'da tam ekranın tek yolu) -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Yılan.io</title>
   </head>
   <body>
     <div id="game"></div>
 
     <div id="hud" hidden>
+      <button id="exit-btn" type="button" class="corner-btn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+      </button>
       <div id="leaderboard"></div>
       <div id="stats"></div>
       <canvas id="minimap"></canvas>
+      <div id="hud-toast"></div>
+      <div id="joystick"><div id="joystick-knob"></div></div>
+      <button id="boost-btn" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 13l7-7 7 7M5 19l7-7 7 7" />
+        </svg>
+      </button>
     </div>
+
+    <button id="fs-btn" type="button" class="corner-btn">
+      <svg class="fs-enter" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+      </svg>
+      <svg class="fs-exit" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />
+      </svg>
+    </button>
 
     <div id="menu" hidden>
       <h1 class="logo"><span class="logo-main">Yılan</span><span class="logo-ext">.io</span></h1>
@@ -24,6 +47,44 @@
         <input id="nick" type="text" spellcheck="false" />
         <button id="play-btn" type="submit"></button>
       </form>
+
+      <div id="setup-panel" class="panel">
+        <span id="settings-title" class="panel-title"></span>
+        <label class="slider-row" for="bots">
+          <span id="bots-label"></span>
+          <input id="bots" type="range" min="0" max="32" step="1" />
+          <output id="bots-value" for="bots"></output>
+        </label>
+        <label class="slider-row" for="speed">
+          <span id="speed-label"></span>
+          <input id="speed" type="range" min="50" max="200" step="5" />
+          <output id="speed-value" for="speed"></output>
+        </label>
+        <div class="friends-row">
+          <span id="friends-title" class="panel-title"></span>
+          <button id="room-create" type="button" class="btn"></button>
+          <form id="join-form" class="join-form" autocomplete="off">
+            <input id="room-code-input" type="text" spellcheck="false" maxlength="8" />
+            <button id="join-btn" type="submit" class="btn"></button>
+          </form>
+        </div>
+      </div>
+
+      <div id="room-panel" class="panel" hidden>
+        <div class="room-head">
+          <span id="room-label" class="panel-title"></span>
+          <strong id="room-code"></strong>
+          <span id="room-meta"></span>
+        </div>
+        <p id="room-hint"></p>
+        <div class="room-link-row">
+          <input id="room-link" type="text" readonly />
+          <button id="room-copy" type="button" class="btn"></button>
+        </div>
+        <button id="room-leave" type="button" class="btn btn-dim"></button>
+      </div>
+
+      <p id="menu-status" role="status"></p>
       <p id="tip"></p>
       <p id="last-score"></p>
     </div>

@@ -3,6 +3,8 @@ import { defineConfig } from 'vite';
 const SERVER = 'http://localhost:8080';
 
 export default defineConfig({
+  // Göreli yollar: derlenmiş site alt klasörde de çalışsın (ör. GitHub Pages: kullanici.github.io/cihanio/)
+  base: './',
   server: {
     host: true, // aynı ağdaki cihazlar (telefon vb.) da bağlanabilsin
     port: 5173,

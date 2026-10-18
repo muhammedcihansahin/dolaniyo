@@ -1,42 +1,73 @@
-import { Container, Sprite, type Texture } from 'pixi.js';
+import { ParticleContainer, type Container, type IParticle, type Texture } from 'pixi.js';
 import { TEX_RADIUS } from './textures';
 
 /**
- * Her karede yeniden kullanılan sprite havuzu: begin() → next() × N → end().
- * Kullanılmayan sprite'lar silinmez, gizlenir (GC baskısı olmaz).
+ * Her karede yeniden kullanılan çizim havuzu: begin() → next() × N → end().
+ *
+ * Sprite yerine tek bir ParticleContainer içindeki düz parçacıklar kullanılır: parçacıklar
+ * sahne ağacında düğüm değildir, sayıları her karede değişse de Pixi sahneyi baştan kurmaz
+ * ve tüm havuz tek çizim çağrısında, tek tampon yüklemesiyle çizilir. Görüntü Sprite ile
+ * aynıdır (aynı doku, ölçek, renk ve önceden çarpılmış saydamlık).
  */
 export class SpritePool {
-  private readonly sprites: Sprite[] = [];
+  readonly container: ParticleContainer;
+  private readonly particles: IParticle[] = [];
   private used = 0;
+  /** Statik özniteliklerin (uv, dönmüyorsa açı) GPU'ya yüklendiği en yüksek parçacık sayısı. */
+  private staticCount = 0;
 
+  /** `rotation`: parçacıklar döndürülecek mi (yalnızca kıvılcımlar). */
   constructor(
-    readonly container: Container,
+    parent: Container,
     private readonly texture: Texture,
-  ) {}
+    rotation = false,
+  ) {
+    this.container = parent.addChild(
+      new ParticleContainer({
+        texture,
+        dynamicProperties: { vertex: true, position: true, color: true, rotation, uvs: false },
+      }),
+    );
+  }
 
   begin(): void {
     this.used = 0;
   }
 
-  /** (x, y) konumunda, `radius` dünya birimi yarıçapında bir sprite döner. */
-  next(x: number, y: number, radius: number, tint: number, alpha = 1): Sprite {
-    let s = this.sprites[this.used];
-    if (!s) {
-      s = new Sprite(this.texture);
-      s.anchor.set(0.5);
-      this.container.addChild(s);
-      this.sprites.push(s);
+  /** (x, y) konumunda, `radius` dünya birimi yarıçapında bir parçacık döner. */
+  next(x: number, y: number, radius: number, tint: number, alpha = 1): IParticle {
+    let p = this.particles[this.used];
+    if (!p) {
+      p = {
+        x: 0,
+        y: 0,
+        scaleX: 1,
+        scaleY: 1,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        rotation: 0,
+        color: 0,
+        texture: this.texture,
+      };
+      this.particles.push(p);
     }
-    this.used++;
-    s.visible = true;
-    s.position.set(x, y);
-    s.scale.set(radius / TEX_RADIUS);
-    s.tint = tint;
-    s.alpha = alpha;
-    return s;
+    this.container.particleChildren[this.used++] = p;
+    p.x = x;
+    p.y = y;
+    p.scaleX = p.scaleY = radius / TEX_RADIUS;
+    p.rotation = 0;
+    // Pixi'nin Particle.tint/alpha ayarlayıcılarının ürettiği değer: ABGR, alfa üst baytta
+    const a = alpha <= 0 ? 0 : alpha >= 1 ? 255 : (alpha * 255) | 0;
+    p.color = ((a << 24) | ((tint & 0xff) << 16) | (tint & 0xff00) | ((tint >> 16) & 0xff)) >>> 0;
+    return p;
   }
 
   end(): void {
-    for (let i = this.used; i < this.sprites.length; i++) this.sprites[i]!.visible = false;
+    this.container.particleChildren.length = this.used;
+    // Statik veriler yalnızca daha önce hiç olmayan kadar çok parçacık çizildiğinde yüklenir
+    if (this.used > this.staticCount) {
+      this.staticCount = this.used;
+      this.container.update();
+    }
   }
 }

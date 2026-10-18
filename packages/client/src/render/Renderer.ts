@@ -7,10 +7,11 @@ import {
   lerp,
   type SimEvent,
   type SnakeLike,
-  type World,
+  type WorldView,
 } from '@yilan/shared';
-import { Application, Container, Graphics, TilingSprite } from 'pixi.js';
-import { SnakeView } from './SnakeView';
+import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
+import { DeathFx, KillBanner } from './DeathFx';
+import { SnakeView, type ViewRect } from './SnakeView';
 import { SpritePool } from './SpritePool';
 import { createTextures, type GameTextures } from './textures';
 
@@ -25,6 +26,11 @@ const EAT_SECONDS = 0.16;
 const MAX_EAT_FX = 600;
 /** Ölen (veya görüşten çıkan) yılanın solma süresi. */
 const SNAKE_FADE_SECONDS = 0.3;
+/** Ekran sarsıntısı: en büyük kayma (900 px'lik ekranda) ve saniyedeki sönüm. */
+const SHAKE_MAX_PX = 16;
+const SHAKE_DECAY = 1.7;
+/** Ekran kenarı flaşının (ölüm kırmızı, öldürme altın) sönme süresi. */
+const VIGNETTE_SECONDS = 0.7;
 
 /** Yenen bir yemin kafaya doğru akan görüntüsü. */
 interface EatFx {
@@ -58,61 +64,112 @@ export class Renderer {
   private readonly deathBlob: SpritePool;
   private readonly deathCore: SpritePool;
   private readonly foodCore: SpritePool;
+  private readonly deathFx: DeathFx;
+  private readonly killBanner = new KillBanner();
+  private readonly vignette: Sprite;
+  private vignetteT = VIGNETTE_SECONDS;
+  private vignettePeak = 0;
+  /** Sarsıntı "travması" (0..1); kayma bunun karesiyle orantılı, zamanla söner. */
+  private trauma = 0;
   private readonly views = new Map<number, SnakeView>();
   /** Görüşten çıkmış, solarak kaybolan yılan çizimleri (kalan süre, sn). */
   private readonly fading = new Map<SnakeView, number>();
   private readonly foodScratch: number[] = [];
+  private readonly viewRect: ViewRect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  private readonly seen = new Set<number>();
   private eatFx: EatFx[] = [];
-  /** Ölüm yemlerinin parlak merkezi için paletin beyaza yaklaştırılmış hali. */
-  private readonly lightPalette = PALETTE.map((c) => mixColor(c, 0xffffff, 0.55));
+  /**
+   * Ölüm yemleri yılan renginde değil, beyaza çok yakın açık tonda çizilir (içinde hafif renk
+   * kalır); dış halesi biraz daha renkli.
+   */
+  private readonly deathBodyPalette = PALETTE.map((c) => mixColor(c, 0xffffff, 0.74));
+  private readonly deathHaloPalette = PALETTE.map((c) => mixColor(c, 0xffffff, 0.4));
   private time = 0;
   private spawnZoomT = SPAWN_ZOOM_SECONDS;
 
+  private readonly outside = new Graphics();
+  private readonly border = new Graphics();
+  private arenaRadius = 0;
+
   constructor(
     private readonly app: Application,
-    private readonly world: World,
+    private world: WorldView,
   ) {
     this.textures = createTextures();
     this.bg = new TilingSprite({ texture: this.textures.hexTile, width: 1, height: 1 });
     app.stage.addChild(this.bg, this.worldLayer);
-
-    const R = world.cfg.arenaRadius;
-    const outside = new Graphics()
-      .rect(-R * 4, -R * 4, R * 8, R * 8)
-      .fill({ color: 0x000000, alpha: 0.55 })
-      .circle(0, 0, R + 20)
-      .cut();
-    const border = new Graphics()
-      .circle(0, 0, R + 20)
-      .stroke({ width: 140, color: BORDER_COLOR, alpha: 0.1 })
-      .circle(0, 0, R + 20)
-      .stroke({ width: 40, color: BORDER_COLOR, alpha: 0.9 });
+    const { outside, border } = this;
+    this.drawArena(world.cfg.arenaRadius);
 
     const foodGlowLayer = new Container({ blendMode: 'add' });
     const deathLayer = new Container();
     const foodLayer = new Container();
     this.foodGlow = new SpritePool(foodGlowLayer, this.textures.glow);
-    this.deathBlob = new SpritePool(deathLayer.addChild(new Container()), this.textures.blob);
-    this.deathCore = new SpritePool(deathLayer.addChild(new Container()), this.textures.blob);
+    this.deathBlob = new SpritePool(deathLayer, this.textures.blob);
+    this.deathCore = new SpritePool(deathLayer, this.textures.blob);
     this.foodCore = new SpritePool(foodLayer, this.textures.circle);
+    this.deathFx = new DeathFx(this.textures);
     this.worldLayer.addChild(
       outside,
       foodGlowLayer,
       deathLayer,
       foodLayer,
       this.snakeLayer,
+      this.deathFx.layer,
       border,
     );
+    this.vignette = new Sprite(this.textures.vignette);
+    this.vignette.visible = false;
+    app.stage.addChild(this.vignette, this.killBanner.root);
   }
 
-  /** Oyuncu doğduğunda uzaktan yakınlaşma animasyonunu başlatır. */
+  /** Başka bir dünyaya geçer (çevrimdışı ↔ oda): eski yılan çizimleri ve efektler atılır. */
+  setWorld(world: WorldView): void {
+    if (world === this.world) return;
+    this.world = world;
+    for (const view of this.views.values()) view.destroy();
+    for (const view of this.fading.keys()) view.destroy();
+    this.views.clear();
+    this.fading.clear();
+    this.eatFx = [];
+    this.deathFx.clear();
+    this.trauma = 0;
+    this.drawArena(world.cfg.arenaRadius);
+  }
+
+  private drawArena(R: number): void {
+    if (R === this.arenaRadius) return;
+    this.arenaRadius = R;
+    this.outside
+      .clear()
+      .rect(-R * 4, -R * 4, R * 8, R * 8)
+      .fill({ color: 0x000000, alpha: 0.55 })
+      .circle(0, 0, R + 20)
+      .cut();
+    this.border
+      .clear()
+      .circle(0, 0, R + 20)
+      .stroke({ width: 140, color: BORDER_COLOR, alpha: 0.1 })
+      .circle(0, 0, R + 20)
+      .stroke({ width: 40, color: BORDER_COLOR, alpha: 0.9 });
+  }
+
+  /** Oyuncu doğduğunda: uzaktan yakınlaşma animasyonu başlar, öldürme serisi sıfırlanır. */
   startSpawnZoom(): void {
     this.spawnZoomT = 0;
+    this.killBanner.reset();
   }
 
-  /** Simülasyon olaylarından görsel efektler üretir (her tick'ten sonra çağrılır). */
-  onEvents(events: readonly SimEvent[]): void {
+  /**
+   * Simülasyon olaylarından görsel efektler üretir (her tick'ten sonra çağrılır).
+   * `playerId`: tick'ten önceki oyuncu yılanı (bu tick'te ölmüş olabilir); yoksa 0.
+   */
+  onEvents(events: readonly SimEvent[], playerId = 0): void {
     for (const e of events) {
+      if (e.type === 'died') {
+        if (e.reason !== 'left') this.onDeath(e, playerId);
+        continue;
+      }
       if (e.type !== 'foodEaten') continue;
       const eater = this.world.snakes.get(e.eaterId);
       this.eatFx.push({
@@ -130,6 +187,61 @@ export class Renderer {
     if (this.eatFx.length > MAX_EAT_FX) this.eatFx.splice(0, this.eatFx.length - MAX_EAT_FX);
   }
 
+  /**
+   * Ölüm efekti: yılan ekrandaysa gövdesinde zincirleme patlama. Oyuncunun kendi ölümü ve
+   * oyuncunun öldürdüğü yılanlar daha güçlü patlar, ekranı sarsar ve kenarda flaş yapar;
+   * öldürmede üstte "ELENDİ!" yazısı çıkar.
+   */
+  private onDeath(e: Extract<SimEvent, { type: 'died' }>, playerId: number): void {
+    const own = playerId !== 0 && e.id === playerId;
+    const byMe = playerId !== 0 && e.killerId === playerId && !own;
+    const view = this.views.get(e.id);
+    const ts = view?.tubeSamples;
+    if (view && ts && view.radius > 0 && ts.n > 0) {
+      const power = own ? 1.6 : byMe ? 1.45 : 1;
+      this.deathFx.burst(ts.xs, ts.ys, ts.arcs, ts.n, view.radius, view.colorIdx, power);
+    }
+    if (own) {
+      this.addShake(0.9);
+      this.flashVignette(0xff3048, 0.85);
+    } else if (byMe) {
+      this.addShake(0.5);
+      this.flashVignette(0xffd23f, 0.4);
+      this.killBanner.show(e.name, e.color);
+    } else if (view && ts && view.radius > 0 && ts.n > 0) {
+      // Yakında ölen yılan (büyüdükçe daha çok) ekranı hafifçe sallar
+      const w = this.app.screen.width / 2 / this.cam.zoom;
+      const h = this.app.screen.height / 2 / this.cam.zoom;
+      const dx = ts.xs[0]! - this.cam.x;
+      const dy = ts.ys[0]! - this.cam.y;
+      const near = 1 - Math.min(1, Math.sqrt(dx * dx + dy * dy) / Math.sqrt(w * w + h * h));
+      this.addShake(0.16 * clamp(view.radius / 18, 0.6, 2.2) * near);
+    }
+  }
+
+  private addShake(amount: number): void {
+    this.trauma = Math.min(1, this.trauma + amount);
+  }
+
+  private flashVignette(color: number, peak: number): void {
+    this.vignette.tint = color;
+    this.vignettePeak = peak;
+    this.vignetteT = 0;
+  }
+
+  /** Ekran kenarı flaşı ve öldürme yazısı (dünya katmanının üstünde, ekran koordinatında). */
+  private renderOverlay(dt: number, w: number, h: number): void {
+    this.vignetteT += dt;
+    const p = this.vignetteT / VIGNETTE_SECONDS;
+    this.vignette.visible = p < 1;
+    if (p < 1) {
+      this.vignette.width = w;
+      this.vignette.height = h;
+      this.vignette.alpha = this.vignettePeak * (1 - p) * (1 - p);
+    }
+    this.killBanner.update(dt, w, h);
+  }
+
   render(alpha: number, dt: number, focus: FocusOptions, showNames: boolean): void {
     this.time += dt;
     const w = this.app.screen.width;
@@ -138,19 +250,27 @@ export class Renderer {
     this.updateCamera(alpha, dt, focus, base);
 
     const { x: cx, y: cy, zoom } = this.cam;
+    // Sarsıntı yalnızca çizimi kaydırır (kamera konumu ve oyun mantığı etkilenmez)
+    this.trauma = Math.max(0, this.trauma - dt * SHAKE_DECAY);
+    const shake = this.trauma * this.trauma * SHAKE_MAX_PX * base;
+    const t = this.time;
+    const sx = shake * (Math.sin(t * 47.3) + 0.6 * Math.sin(t * 31.7 + 1.3)) * 0.62;
+    const sy = shake * (Math.sin(t * 43.1 + 2.1) + 0.6 * Math.sin(t * 27.9 + 0.4)) * 0.62;
     this.worldLayer.scale.set(zoom);
-    this.worldLayer.position.set(w / 2 - cx * zoom, h / 2 - cy * zoom);
+    this.worldLayer.position.set(w / 2 - cx * zoom + sx, h / 2 - cy * zoom + sy);
 
     this.bg.width = w;
     this.bg.height = h;
     this.bg.tileScale.set(zoom);
-    this.bg.tilePosition.set(w / 2 - cx * zoom, h / 2 - cy * zoom);
+    this.bg.tilePosition.set(w / 2 - cx * zoom + sx, h / 2 - cy * zoom + sy);
     this.bg.alpha = clamp((zoom - 0.25) * 2.5, 0.25, 1);
 
     const halfW = w / 2 / zoom + 40;
     const halfH = h / 2 / zoom + 40;
     this.renderFood(alpha, dt, cx - halfW, cy - halfH, cx + halfW, cy + halfH);
     this.renderSnakes(alpha, dt, zoom, halfW, halfH, focus.own ? focus.snake : null, showNames);
+    this.deathFx.render(dt);
+    this.renderOverlay(dt, w, h);
   }
 
   private updateCamera(alpha: number, dt: number, focus: FocusOptions, base: number): void {
@@ -205,7 +325,8 @@ export class Renderer {
         y = lerp(food.py[slot]!, y, alpha);
       }
       const age = (tick - food.born[slot]! + alpha) * DT;
-      let vis = age < FOOD_POP_SECONDS ? easeOutCubic(Math.max(0, age) / FOOD_POP_SECONDS) : 1;
+      const pop = Math.max(0, age) / FOOD_POP_SECONDS;
+      let vis = pop < 1 ? easeOutCubic(pop) : 1;
       const expire = food.expire[slot]!;
       if (expire >= 0) vis *= clamp(((expire - tick - alpha) * DT) / FOOD_FADE_SECONDS, 0, 1);
       if (vis <= 0) continue;
@@ -214,10 +335,12 @@ export class Renderer {
         const r = food.radius[slot]!;
         x += Math.sin(t * 1.3 + id * 2.1) * r * 0.1;
         y += Math.cos(t * 1.1 + id * 1.3) * r * 0.1;
+        // Patlamadan saçılan yem bir an büyüyüp yerine oturur
+        const grow = pop < 1 ? vis * (1 + 0.45 * Math.sin(Math.PI * pop)) : vis;
         this.drawDeathOrb(
           x,
           y,
-          r * (1 + 0.07 * Math.sin(t * 2.4 + id)) * vis,
+          r * (1 + 0.07 * Math.sin(t * 2.4 + id)) * grow,
           food.color[slot]!,
           vis,
         );
@@ -262,12 +385,15 @@ export class Renderer {
     this.foodCore.next(x, y, r, color, vis);
   }
 
-  /** Ölüm yemi: yumuşak kenarlı, parlak merkezli büyük küre; üst üste binince gövde şekli çıkar. */
+  /**
+   * Ölüm yemi: yumuşak kenarlı, beyaza yakın büyük küre (içinde yılanın renginden hafif bir ton)
+   * ve hafif renkli hale; üst üste binince gövde şekli çıkar.
+   */
   private drawDeathOrb(x: number, y: number, r: number, colorIdx: number, vis: number): void {
-    const color = PALETTE[colorIdx] ?? 0xffffff;
-    this.foodGlow.next(x, y, r * 1.9, color, 0.3 * vis);
-    this.deathBlob.next(x, y, r, color, 0.8 * vis);
-    this.deathCore.next(x, y, r * 0.55, this.lightPalette[colorIdx] ?? 0xffffff, 0.55 * vis);
+    this.foodGlow.next(x, y, r * 1.9, this.deathHaloPalette[colorIdx] ?? 0xffffff, 0.3 * vis);
+    // Doku kenarı yumuşak: görünen kenar gövde boncuğununkiyle (yarıçap r) aynı yere gelsin
+    this.deathBlob.next(x, y, r * 1.15, this.deathBodyPalette[colorIdx] ?? 0xffffff, 0.82 * vis);
+    this.deathCore.next(x, y, r * 0.55, 0xffffff, 0.6 * vis);
   }
 
   private renderSnakes(
@@ -280,7 +406,13 @@ export class Renderer {
     showNames: boolean,
   ): void {
     const { x: cx, y: cy } = this.cam;
-    const seen = new Set<number>();
+    const rect = this.viewRect;
+    rect.minX = cx - halfW;
+    rect.minY = cy - halfH;
+    rect.maxX = cx + halfW;
+    rect.maxY = cy + halfH;
+    const seen = this.seen;
+    seen.clear();
     for (const s of this.world.snakeList) {
       // Kafa görüş alanından gövde boyundan daha uzaktaysa yılan görünmez
       const ox = Math.abs(s.x - cx) - halfW;
@@ -293,7 +425,7 @@ export class Renderer {
         this.snakeLayer.addChild(view.root);
       }
       view.root.zIndex = s === own ? Number.MAX_SAFE_INTEGER : s.score;
-      view.update(s, alpha, dt, zoom, showNames);
+      view.update(s, alpha, dt, zoom, showNames, rect);
       seen.add(s.id);
     }
     for (const [id, view] of this.views) {
